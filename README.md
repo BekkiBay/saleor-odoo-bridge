@@ -1,5 +1,9 @@
 # saleor-odoo-bridge
 
+[![CI](https://github.com/BekkiBay/saleor-odoo-bridge/actions/workflows/ci.yml/badge.svg)](https://github.com/BekkiBay/saleor-odoo-bridge/actions/workflows/ci.yml)
+[![License: LGPL v3](https://img.shields.io/badge/License-LGPL_v3-blue.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
+
 Two-way sync bridge between [Saleor](https://github.com/saleor/saleor) (e-commerce) and [Odoo](https://github.com/odoo/odoo) (ERP): products, variants, categories, attributes, stock, orders and customers.
 
 Extracted from a production single-seller marketplace. Runs against **Saleor 3.23** and **Odoo 19 Community**.
