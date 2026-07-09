@@ -27,13 +27,10 @@ Reliability features:
 
 ## Architecture
 
-```
-Saleor ──webhooks──▶ FastAPI middleware ──JSON-RPC──▶ Odoo
-   ▲                  (JWS verify → idempotency        │
-   │                   → Redis/arq queue → usecase)    │
-   └───GraphQL mutations◀── arq worker ◀──webhooks─────┘
-                                          (saleor_sync addon, outbox)
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/architecture-dark.svg">
+  <img alt="Saleor and Odoo on either side of the bridge middleware: Saleor sends orders and customers via JWS-verified webhooks into a Redis/arq queue; the worker maps payloads through adapters, domain models and usecases, then talks to Odoo over JSON-RPC; the saleor_sync addon sends catalog, stock and status changes back through an outbox." src="docs/assets/architecture-light.svg">
+</picture>
 
 The middleware is hexagonal (ports & adapters): `adapters/saleor/` and `adapters/odoo/` translate to and from pure pydantic domain models in `domain/`; business logic lives in `usecases/`. Adding another storefront (Shopify, say) means adding one adapter package.
 

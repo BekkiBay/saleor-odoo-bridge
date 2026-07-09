@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="400" viewBox="0 0 920 400" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#8b949e"/>
+    </marker>
+  </defs>
+
+  <!-- Saleor -->
+  <rect x="20" y="90" width="180" height="220" rx="10" fill="#1e1b4b" stroke="#818cf8" stroke-width="1.5"/>
+  <text x="110" y="122" text-anchor="middle" font-size="17" font-weight="600" fill="#e6edf3">Saleor</text>
+  <text x="110" y="142" text-anchor="middle" font-size="12" fill="#8b949e">headless e-commerce</text>
+  <rect x="38" y="162" width="144" height="30" rx="6" fill="#161b22" stroke="#30363d"/>
+  <text x="110" y="181" text-anchor="middle" font-size="12" fill="#8b949e">GraphQL API</text>
+  <rect x="38" y="200" width="144" height="30" rx="6" fill="#161b22" stroke="#30363d"/>
+  <text x="110" y="219" text-anchor="middle" font-size="12" fill="#8b949e">webhooks (JWS)</text>
+  <rect x="38" y="238" width="144" height="30" rx="6" fill="#161b22" stroke="#30363d"/>
+  <text x="110" y="257" text-anchor="middle" font-size="12" fill="#8b949e">App: Saleor Odoo Sync</text>
+
+  <!-- Middleware -->
+  <rect x="300" y="50" width="320" height="300" rx="10" fill="#431407" stroke="#fb923c" stroke-width="1.5"/>
+  <text x="460" y="82" text-anchor="middle" font-size="17" font-weight="600" fill="#e6edf3">bridge middleware</text>
+  <text x="460" y="102" text-anchor="middle" font-size="12" fill="#8b949e">FastAPI · Python 3.11</text>
+  <rect x="322" y="120" width="276" height="34" rx="6" fill="#161b22" stroke="#30363d"/>
+  <text x="460" y="141" text-anchor="middle" font-size="12" fill="#8b949e">JWS verify → idempotency → enqueue</text>
+  <rect x="322" y="162" width="130" height="34" rx="6" fill="#161b22" stroke="#30363d"/>
+  <text x="387" y="183" text-anchor="middle" font-size="12" fill="#8b949e">Redis · arq</text>
+  <rect x="468" y="162" width="130" height="34" rx="6" fill="#161b22" stroke="#30363d"/>
+  <text x="533" y="183" text-anchor="middle" font-size="12" fill="#8b949e">worker</text>
+  <rect x="322" y="204" width="276" height="34" rx="6" fill="#161b22" stroke="#30363d"/>
+  <text x="460" y="225" text-anchor="middle" font-size="12" fill="#8b949e">adapters → domain → usecases</text>
+  <rect x="322" y="246" width="276" height="34" rx="6" fill="#161b22" stroke="#30363d"/>
+  <text x="460" y="267" text-anchor="middle" font-size="12" fill="#8b949e">retries · skip-guards · alerts</text>
+  <text x="460" y="322" text-anchor="middle" font-size="11" font-family="ui-monospace,SFMono-Regular,'SF Mono',Menlo,monospace" fill="#8b949e">168 tests · mypy clean</text>
+
+  <!-- Odoo -->
+  <rect x="720" y="90" width="180" height="220" rx="10" fill="#052e16" stroke="#4ade80" stroke-width="1.5"/>
+  <text x="810" y="122" text-anchor="middle" font-size="17" font-weight="600" fill="#e6edf3">Odoo 19</text>
+  <text x="810" y="142" text-anchor="middle" font-size="12" fill="#8b949e">ERP back-office</text>
+  <rect x="738" y="162" width="144" height="30" rx="6" fill="#161b22" stroke="#30363d"/>
+  <text x="810" y="181" text-anchor="middle" font-size="12" fill="#8b949e">saleor_sync addon</text>
+  <rect x="738" y="200" width="144" height="30" rx="6" fill="#161b22" stroke="#30363d"/>
+  <text x="810" y="219" text-anchor="middle" font-size="12" fill="#8b949e">bindings · outbox</text>
+  <rect x="738" y="238" width="144" height="30" rx="6" fill="#161b22" stroke="#30363d"/>
+  <text x="810" y="257" text-anchor="middle" font-size="12" fill="#8b949e">fulfillment_status</text>
+
+  <!-- Arrows Saleor <-> middleware -->
+  <line x1="200" y1="150" x2="298" y2="150" stroke="#8b949e" stroke-width="1.5" marker-end="url(#a)"/>
+  <text x="249" y="140" text-anchor="middle" font-size="11" fill="#8b949e">orders · customers</text>
+  <line x1="298" y1="250" x2="202" y2="250" stroke="#8b949e" stroke-width="1.5" marker-end="url(#a)"/>
+  <text x="249" y="272" text-anchor="middle" font-size="11" fill="#8b949e">catalog · stock · status</text>
+
+  <!-- Arrows middleware <-> Odoo -->
+  <line x1="620" y1="150" x2="718" y2="150" stroke="#8b949e" stroke-width="1.5" marker-end="url(#a)"/>
+  <text x="669" y="140" text-anchor="middle" font-size="11" fill="#8b949e">JSON-RPC</text>
+  <line x1="718" y1="250" x2="622" y2="250" stroke="#8b949e" stroke-width="1.5" marker-end="url(#a)"/>
+  <text x="669" y="272" text-anchor="middle" font-size="11" fill="#8b949e">webhooks (shared secret)</text>
+</svg>

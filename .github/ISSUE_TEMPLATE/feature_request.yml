@@ -1,0 +1,24 @@
+name: Feature request
+description: Something the bridge should sync or support but doesn't
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What can't you do today? Describe the store setup that hits this.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: >
+        What should happen instead? If it touches a recorded decision
+        (docs/adr/), say which one.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I looked through docs/adr/ — this isn't an already-documented deliberate limitation (or I'm proposing to lift one)

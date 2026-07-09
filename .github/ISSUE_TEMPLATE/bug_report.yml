@@ -1,0 +1,41 @@
+name: Bug report
+description: Something syncs wrong, crashes, or silently does nothing
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What did you do, what did you expect, what happened instead?
+      placeholder: |
+        Created an order in Saleor → expected a draft sale.order in Odoo →
+        nothing appeared, no error in the logs.
+    validations:
+      required: true
+  - type: input
+    id: saleor-version
+    attributes:
+      label: Saleor version
+      placeholder: "3.23"
+    validations:
+      required: true
+  - type: input
+    id: odoo-version
+    attributes:
+      label: Odoo version
+      placeholder: "19 Community"
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Middleware logs
+      description: >
+        Relevant lines with BRIDGE_LOG_LEVEL=DEBUG. If a sync failed, also paste
+        the `sync_state` and `error_message` from the saleor.binding record in Odoo.
+      render: text
+  - type: textarea
+    id: binding
+    attributes:
+      label: Anything else
+      description: Compose vs local dev, tunnel setup, multi-warehouse/channel, etc.
