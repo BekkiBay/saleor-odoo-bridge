@@ -1,0 +1,22 @@
+# Secrets
+.env
+
+# Python venv
+.venv/
+__pycache__/
+*.pyc
+
+# Logs
+*.log
+
+# Local data / backups dumps (только корневой data/ — каталожные xlsx-дампы).
+# Anchored: НЕ ловит odoo/addons/*/data/ (там XML-данные модулей, их надо коммитить).
+/data/
+backups/*
+!backups/.gitkeep
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+*.swp

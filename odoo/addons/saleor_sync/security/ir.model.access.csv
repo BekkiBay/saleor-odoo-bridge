@@ -1,0 +1,5 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_saleor_binding_user,saleor.binding (user read),model_saleor_binding,base.group_user,1,0,0,0
+access_saleor_binding_manager,saleor.binding (manager full),model_saleor_binding,base.group_system,1,1,1,1
+access_saleor_outbox_user,saleor.outbox (user read),model_saleor_outbox,base.group_user,1,0,0,0
+access_saleor_outbox_manager,saleor.outbox (manager full),model_saleor_outbox,base.group_system,1,1,1,1

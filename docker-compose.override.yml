@@ -1,0 +1,20 @@
+# Dev overlay — auto-loaded by `docker compose` on this machine (no -f needed).
+#
+# Restores the local live-reload workflow that used to live in the base file:
+#   - build the `dev` image stage (curl + healthcheck, runs as root)
+#   - bind-mount ./middleware/src over /app/src so code edits apply without rebuild
+#
+# The base docker-compose.yml is prod-safe (target: prod, no host mount, non-root).
+# Prod / CI deploy WITHOUT this override:  docker compose -f docker-compose.yml up -d
+services:
+  middleware:
+    build:
+      target: dev
+    volumes:
+      - ./middleware/src:/app/src:ro
+
+  middleware-worker:
+    build:
+      target: dev
+    volumes:
+      - ./middleware/src:/app/src:ro

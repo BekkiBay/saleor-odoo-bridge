@@ -1,0 +1,136 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: odoo-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - odoo-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  odoo:
+    image: odoo:19
+    container_name: odoo-app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # Official odoo image reads these for DB connection; we still keep
+      # them in odoo.conf via the entrypoint substitution for completeness.
+      HOST: db
+      PORT: 5432
+      USER: ${POSTGRES_USER}
+      PASSWORD: ${POSTGRES_PASSWORD}
+      ODOO_ADMIN_PASSWORD: ${ODOO_ADMIN_PASSWORD}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      # Phase 3.2: post_init_hook saleor_sync читает их в ir.config_parameter.
+      # webhook_secret обязан совпасть с BRIDGE_ODOO_WEBHOOK_SECRET у middleware.
+      BRIDGE_MIDDLEWARE_INTERNAL_URL: ${BRIDGE_MIDDLEWARE_INTERNAL_URL:-http://middleware:8080}
+      BRIDGE_ODOO_WEBHOOK_SECRET: ${BRIDGE_ODOO_WEBHOOK_SECRET:?set BRIDGE_ODOO_WEBHOOK_SECRET in .env — must match middleware}
+    volumes:
+      - odoo-web-data:/var/lib/odoo
+      - ./odoo/config:/etc/odoo:ro
+      - ./odoo/addons:/mnt/extra-addons
+      - ./scripts/entrypoint.sh:/usr/local/bin/odoo-entrypoint-wrapper.sh:ro
+    ports:
+      - "127.0.0.1:8069:8069"
+    networks:
+      - odoo-net
+    entrypoint: ["/bin/bash", "/usr/local/bin/odoo-entrypoint-wrapper.sh"]
+    command: ["odoo"]
+
+  redis:
+    image: redis:7-alpine
+    container_name: marketplace-redis
+    restart: unless-stopped
+    networks:
+      - odoo-net
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  middleware:
+    build:
+      context: ./middleware
+      # Base compose is prod-safe: built image, no host source mount, non-root.
+      # Local dev live-reload comes from docker-compose.override.yml (auto-loaded).
+      target: prod
+    container_name: marketplace-middleware
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      odoo:
+        condition: service_started
+    environment: &bridge-env
+      BRIDGE_SALEOR_API_URL: ${BRIDGE_SALEOR_API_URL:-http://host.docker.internal:8000/graphql/}
+      BRIDGE_SALEOR_DEFAULT_CHANNEL: ${BRIDGE_SALEOR_DEFAULT_CHANNEL:-default-channel}
+      BRIDGE_SALEOR_PRODUCT_TYPE_NAME: ${BRIDGE_SALEOR_PRODUCT_TYPE_NAME:-Generic}
+      BRIDGE_SALEOR_APP_TOKEN: ${BRIDGE_SALEOR_APP_TOKEN:-}
+      BRIDGE_ODOO_URL: ${BRIDGE_ODOO_URL:-http://odoo:8069}
+      BRIDGE_ODOO_DB: ${ODOO_DB_NAME:-marketplace}
+      BRIDGE_ODOO_API_KEY: ${BRIDGE_ODOO_API_KEY:-}
+      BRIDGE_ODOO_WEBHOOK_SECRET: ${BRIDGE_ODOO_WEBHOOK_SECRET:?set BRIDGE_ODOO_WEBHOOK_SECRET in .env — must match Odoo}
+      BRIDGE_MIDDLEWARE_PUBLIC_URL: ${BRIDGE_MIDDLEWARE_PUBLIC_URL:-http://localhost:8080}
+      BRIDGE_REDIS_URL: redis://redis:6379/0
+      BRIDGE_LOG_LEVEL: ${BRIDGE_LOG_LEVEL:-INFO}
+      BRIDGE_STOCK_SAFETY_BUFFER: ${BRIDGE_STOCK_SAFETY_BUFFER:-1}
+      BRIDGE_STOCK_RECONCILE_INTERVAL: ${BRIDGE_STOCK_RECONCILE_INTERVAL:-300}
+      BRIDGE_SLACK_WEBHOOK_URL: ${BRIDGE_SLACK_WEBHOOK_URL:-}
+      BRIDGE_OPS_EMAIL: ${BRIDGE_OPS_EMAIL:-}
+      BRIDGE_SMTP_HOST: ${BRIDGE_SMTP_HOST:-}
+      BRIDGE_SMTP_PORT: ${BRIDGE_SMTP_PORT:-25}
+      BRIDGE_SMTP_USER: ${BRIDGE_SMTP_USER:-}
+      BRIDGE_SMTP_PASSWORD: ${BRIDGE_SMTP_PASSWORD:-}
+    ports:
+      - "127.0.0.1:8080:8080"
+    networks:
+      - odoo-net
+    extra_hosts:
+      # Linux: позволяет middleware достучаться до Saleor работающего на хосте.
+      # На macOS/Windows host.docker.internal резолвится автоматически.
+      - "host.docker.internal:host-gateway"
+
+  middleware-worker:
+    build:
+      context: ./middleware
+      target: prod
+    container_name: marketplace-middleware-worker
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      odoo:
+        condition: service_started
+    environment: *bridge-env
+    command: ["python", "-m", "arq", "saleor_bridge.queue.arq_worker.WorkerSettings"]
+    healthcheck:
+      disable: true   # worker не HTTP-сервис, curl-healthcheck из образа не применим
+    networks:
+      - odoo-net
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+networks:
+  odoo-net:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  odoo-web-data:
+  redis-data:
