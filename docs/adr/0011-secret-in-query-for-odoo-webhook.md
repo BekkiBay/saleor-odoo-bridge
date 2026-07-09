@@ -1,66 +1,72 @@
-# ADR-0011: Secret в URL query для outbound webhooks Odoo → middleware
+# ADR-0011: Secret in the URL query string for outbound Odoo → middleware webhooks
 
 ## Status
-Accepted (2026-05-23) — Phase 3.2
+Accepted (2026-05-23)
 
 ## Context
 
-Reverse flow (Phase 3.2): изменение `product.template` / `product.category` в Odoo
-должно долететь до middleware (`POST /api/odoo-events`), который положит job в arq
-и запушит в Saleor.
+For the reverse flow, changes to `product.template` / `product.category` in Odoo
+need to reach the middleware (`POST /api/odoo-events`), which enqueues a job in arq
+and pushes it to Saleor.
 
-Триггер на стороне Odoo — `base.automation` (`on_create_or_write`) → серверный
-action. Нужно аутентифицировать вызов middleware, чтобы кто угодно не дёргал
-`/api/odoo-events`.
+The trigger on the Odoo side is `base.automation` (`on_create_or_write`) → a server
+action. The call into the middleware needs to be authenticated, so that
+`/api/odoo-events` can't be hit by just anyone.
 
-Варианты доставки секрета:
+Options for delivering the secret:
 
-1. **HMAC-подпись тела в заголовке** (как Saleor подписывает свои webhooks, см.
-   `saleor/signature.py`). Самый стойкий: тело нельзя подменить, replay ограничен
-   по времени.
-2. **Bearer-токен в заголовке `Authorization`.**
-3. **Секрет в query-параметре `?secret=...`.**
+1. **An HMAC signature over the body, in a header** (the way Saleor signs its own
+   webhooks, see `saleor/signature.py`). The most robust: the body can't be tampered
+   with, and replay is time-bounded.
+2. **A bearer token in the `Authorization` header.**
+3. **A secret in the query parameter `?secret=...`.**
 
-Ограничение Odoo: нативный webhook server-action (`state='webhook'`) **не умеет**
-кастомные заголовки — только URL + список полей. Чтобы получить и outbox-запись, и
-guard от эхо-петли, мы пишем серверный action `state='code'` (Python), который сам
-делает `POST`. В коде заголовки технически доступны, но мы сознательно остаёмся на
-query-секрете ради простоты и единообразия с тем, на что Odoo способен из коробки.
+Odoo's constraint: the native webhook server action (`state='webhook'`) **cannot**
+send custom headers — only a URL and a list of fields. To get both an outbox record
+and echo-loop protection, we instead write a `state='code'` (Python) server action
+that performs the `POST` itself. Custom headers are technically reachable from that
+code, but we deliberately stick with a query secret for simplicity and consistency
+with what Odoo supports out of the box.
 
 ## Decision
 
-**Секрет передаётся в query-параметре:**
+**The secret is passed as a query parameter:**
 
 ```
 POST {saleor_sync.middleware_url}/api/odoo-events?secret={saleor_sync.webhook_secret}
 Body: {"odoo_model": "...", "odoo_id": N, "action": "create|write|unlink"}
 ```
 
-- `webhook_secret` хранится в `ir.config_parameter` (`saleor_sync.webhook_secret`),
-  значение из env `BRIDGE_ODOO_WEBHOOK_SECRET` (тот же секрет на стороне middleware
-  через `BRIDGE_ODOO_WEBHOOK_SECRET`).
-- Middleware сравнивает константно-временно (`hmac.compare_digest`), на mismatch → 401.
-- Связь Odoo→middleware идёт по внутренней docker-сети (`http://middleware:8080`),
-  наружу не выходит. Query-секрет в логах reverse-proxy — приемлемый риск для
-  internal hop; для prod HTTPS-туннель закрывает перехват.
+- `webhook_secret` is stored in `ir.config_parameter` (`saleor_sync.webhook_secret`),
+  sourced from env `BRIDGE_ODOO_WEBHOOK_SECRET` (the middleware uses the same secret
+  via its own `BRIDGE_ODOO_WEBHOOK_SECRET`).
+- The middleware compares it in constant time (`hmac.compare_digest`); on a mismatch
+  it returns 401.
+- The Odoo→middleware connection runs over the internal docker network
+  (`http://middleware:8080`) and never leaves it. A query secret appearing in
+  reverse-proxy logs is an acceptable risk for an internal hop; for production, an
+  HTTPS tunnel closes off interception.
 
 ## Alternatives considered
 
-- **HMAC (вариант 1).** Стойче, но сложнее: нужно делить ключ, сериализовать тело
-  детерминированно, проверять timestamp. Отложено в Phase 4 (extended action с
-  подписью). Для internal hop за reverse-proxy выгода мала.
-- **Bearer header (вариант 2).** Эквивалентно по стойкости query-секрету, но требует
-  явного добавления заголовка; преимущества над query нет, раз hop внутренний.
+- **HMAC (option 1).** More robust, but more complex: requires sharing a key,
+  serializing the body deterministically, and checking a timestamp. Deferred to a
+  future iteration (an extended action with a signature). The benefit is small for
+  an internal hop behind a reverse proxy.
+- **Bearer header (option 2).** Roughly as secure as the query secret, but requires
+  explicitly adding a header; there's no real advantage over the query parameter
+  given the hop is internal.
 
 ## Consequences
 
-**Pros:** минимум кода, отлаживается `curl`'ом, секрет ротируется через один
-config-parameter + env.
+**Pros:** minimal code, easy to debug with `curl`, and the secret rotates through a
+single config parameter + env var.
 
-**Cons:** секрет виден в URL (access-логи прокси). Нет защиты от replay и от подмены
-тела. Допустимо, т.к. вызов internal и тело — лишь `(model, id, action)`; middleware
-всё равно перечитывает актуальную запись из Odoo по `id` перед push (источник правды
-— Odoo, ADR-0006), так что подделанное тело не приводит к записи поддельных данных.
+**Cons:** the secret is visible in the URL (proxy access logs). No protection
+against replay or body tampering. This is acceptable because the call is internal
+and the body is only `(model, id, action)`; the middleware always re-reads the
+current record from Odoo by `id` before pushing anything (Odoo remains the source
+of truth, per ADR-0006), so a forged body can't result in forged data being written.
 
-**Миграция (Phase 4):** заменить `?secret=` на HMAC-заголовок + timestamp; endpoint
-будет принимать оба в переходный период.
+**Future migration:** replace `?secret=` with an HMAC header + timestamp; the
+endpoint would accept both during a transition period.

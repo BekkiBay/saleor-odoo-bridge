@@ -21,7 +21,7 @@ _SO = "sale.order"
 
 
 class OrderNotYetCreated(RuntimeError):
-    """ORDER_PAID/CANCELLED пришёл раньше ORDER_CREATED — retryable."""
+    """ORDER_PAID/CANCELLED arrived before ORDER_CREATED — retryable."""
 
 
 async def _check_total_guard(
@@ -35,6 +35,11 @@ async def _check_total_guard(
     """Verify the created Odoo order total matches Saleor. On mismatch: mark the
     binding 'diverged' + warn (do NOT raise — deterministic). Returns match bool."""
     oid = order_id if order_id is not None else await so_adapter.find_order_id(odoo, order)
+    if oid is None:
+        msg = f"order {order.client_order_ref} not found in Odoo — cannot verify total"
+        log.error("order_total_check_no_order", ref=order.client_order_ref)
+        warnings.append(msg)
+        return False
     odoo_total = await so_adapter.fetch_amount_total(odoo, oid)
     if so_adapter.order_totals_match(odoo_total, order.total, tolerance):
         return True
@@ -48,7 +53,7 @@ async def _check_total_guard(
 
 
 def _customer_from_order(order: Order) -> Customer:
-    """Собрать domain.Customer из order payload (для guest или logged-in)."""
+    """Build a domain.Customer from the order payload (for guest or logged-in)."""
     billing = order.billing_address
     first = billing.first_name if billing else ""
     last = billing.last_name if billing else ""
@@ -82,7 +87,7 @@ async def sync_order_to_odoo(
 async def _handle_created(
     order: Order, odoo: OdooClient, binding_repo: BindingRepository, warnings: list[str]
 ) -> SyncResult:
-    # Idempotency: если sale.order уже есть по client_order_ref — skip create.
+    # Idempotency: if a sale.order already exists for client_order_ref — skip create.
     existing = await so_adapter.find_order_id(odoo, order)
     if existing:
         log.info("order_already_exists", order_id=existing, ref=order.client_order_ref)
@@ -120,7 +125,7 @@ async def _resolve_order_id(order: Order, odoo: OdooClient, binding_repo: Bindin
     if odoo_id is None:
         odoo_id = await so_adapter.find_order_id(odoo, order)
     if odoo_id is None:
-        # Race: paid/cancel пришёл раньше created. Retryable.
+        # Race: paid/cancel arrived before created. Retryable.
         raise OrderNotYetCreated(
             f"sale.order for {order.client_order_ref} not found yet"
         )

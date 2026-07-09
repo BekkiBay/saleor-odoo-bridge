@@ -1,4 +1,4 @@
-"""respx router helper для order-мутаций Saleor (Phase 3.4 тесты). Не test_-модуль."""
+"""respx router helper for Saleor order mutations (tests). Not a test_ module."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ _WAREHOUSE_ID = "V2FyZWhvdXNlOjE="
 
 
 def make_saleor_router(order_node: dict, *, warehouse_id: str = _WAREHOUSE_ID, capture: list | None = None):
-    """Вернуть side_effect для respx: отвечает на order query + lifecycle мутации."""
+    """Return a side_effect for respx: responds to the order query + lifecycle mutations."""
 
     def router(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)

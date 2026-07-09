@@ -1,8 +1,8 @@
-"""Read остатков из Odoo (stock.quant) → domain.StockLevel.
+"""Read stock levels from Odoo (stock.quant) → domain.StockLevel.
 
-Агрегация по варианту: sum(quantity) по internal-локациям (ADR-0015, ADR-0017).
-Один склад MVP → один StockLevel на вариант. Safety buffer применяет домен
-(ADR-0016), здесь только сырой агрегат.
+Aggregation per variant: sum(quantity) over internal locations (ADR-0015, ADR-0017).
+Single-warehouse MVP → one StockLevel per variant. The safety buffer is applied by
+the domain layer (ADR-0016); this module only produces the raw aggregate.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ _QUANT = "stock.quant"
 _WAREHOUSE = "stock.warehouse"
 _VARIANT = "product.product"
 
-# Только реальный складской остаток: internal-локации (не customer/supplier/inventory).
+# Only real warehouse stock: internal locations (not customer/supplier/inventory).
 _INTERNAL = ("location_id.usage", "=", "internal")
 
 
@@ -28,12 +28,12 @@ def _m2o_id(value) -> int | None:
 
 
 def _floor_qty(total: float) -> int:
-    """Odoo quantity = float; Saleor stock = Int. Floor — консервативно (не оверселл)."""
+    """Odoo quantity = float; Saleor stock = Int. Floor — conservative (avoids overselling)."""
     return math.floor(total)
 
 
 async def fetch_default_warehouse(odoo: OdooClient) -> Warehouse | None:
-    """Первый stock.warehouse (single-warehouse MVP, ADR-0015)."""
+    """First stock.warehouse (single-warehouse MVP, ADR-0015)."""
     rows = await odoo.search_read(_WAREHOUSE, [], ["id", "name", "code"], limit=1)
     if not rows:
         return None
@@ -43,7 +43,7 @@ async def fetch_default_warehouse(odoo: OdooClient) -> Warehouse | None:
 
 
 async def fetch_variant_ref(odoo: OdooClient, pp_id: int) -> dict | None:
-    """product.product → {sku, template_id}. template_id нужен для catalog-binding."""
+    """product.product → {sku, template_id}. template_id is needed for catalog-binding."""
     rows = await odoo.read(_VARIANT, [pp_id], ["default_code", "product_tmpl_id"])
     if not rows:
         return None
@@ -63,10 +63,10 @@ async def fetch_aggregated_stock(
     *,
     safety_buffer: int,
 ) -> list[StockLevel]:
-    """Для одного product.product — агрегат остатка per warehouse.
+    """For a single product.product — the stock aggregate per warehouse.
 
-    MVP: все internal-quant'ы → один StockLevel (default warehouse). Список —
-    задел под multi-warehouse (Phase 4).
+    MVP: all internal quants → one StockLevel (default warehouse). The list
+    return type is groundwork for future multi-warehouse support.
     """
     ref = await fetch_variant_ref(odoo, pp_id)
     sku = ref["sku"] if ref else f"odoo-{pp_id}"
@@ -88,7 +88,7 @@ async def fetch_all_aggregated_stock(
     *,
     safety_buffer: int,
 ) -> dict[str, StockLevel]:
-    """sku → StockLevel для всех активных вариантов (для reconcile). 2 read'а."""
+    """sku → StockLevel for all active variants (for reconcile). 2 reads."""
     pp_ids = await odoo.search(_VARIANT, [("active", "=", True)])
     if not pp_ids:
         return {}

@@ -1,4 +1,4 @@
-"""domain.Order → sale.order операции (Odoo JSON-2)."""
+"""domain.Order → sale.order operations (Odoo JSON-2)."""
 
 from __future__ import annotations
 
@@ -22,8 +22,8 @@ _SO = "sale.order"
 _SOL = "sale.order.line"
 _PRODUCT = "product.product"
 
-# Phase 3.4 (ADR-0020): write'ы из Saleor-событий несут этот context, чтобы Odoo
-# outbound-automation НЕ эмитила echo-событие обратно в Saleor.
+# ADR-0020: writes originating from Saleor events carry this context so Odoo's
+# outbound automation does NOT emit an echo event back to Saleor.
 _SKIP_CTX = {"saleor_sync_skip": True}
 
 _currency_cache: dict[str, int | None] = {}
@@ -49,7 +49,7 @@ async def resolve_product_id(odoo: OdooClient, sku: str) -> int | None:
         return rows[0]["id"]
     if len(rows) > 1:
         log.warning("sku_collision", sku=sku, ids=[r["id"] for r in rows])
-        return rows[0]["id"]  # fall back на первый, лог записан
+        return rows[0]["id"]  # fall back to the first one, already logged
     return None
 
 
@@ -90,13 +90,13 @@ async def create_draft_order(
     shipping_id: int | None,
     shipping_sku: str = "SHIPPING",
 ) -> int:
-    """Create sale.order в state draft. Возвращает order_id."""
+    """Create sale.order in state draft. Returns order_id."""
     line_cmds = await build_order_lines(odoo, order)
     if order.shipping_net and order.shipping_net > 0:
         ship_product = await product_adapter.resolve_shipping_product(odoo, shipping_sku)
         ship_vals = {
             "product_id": ship_product,
-            "name": order.shipping_method_name or "Доставка",
+            "name": order.shipping_method_name or "Shipping",
             "product_uom_qty": 1,
             "price_unit": float(order.shipping_net),
         }
@@ -114,15 +114,15 @@ async def create_draft_order(
     if order.discounts or order.voucher_code:
         parts = list(order.discounts)
         if order.voucher_code:
-            parts.append(f"Промокод: {order.voucher_code}")
-        vals["note"] = "Скидки Saleor — " + "; ".join(parts)
+            parts.append(f"Voucher code: {order.voucher_code}")
+        vals["note"] = "Saleor discounts — " + "; ".join(parts)
     currency_id = await resolve_currency_id(odoo, order.currency)
     if currency_id:
         vals["currency_id"] = currency_id
     if order.created_at:
         vals["date_order"] = order.created_at.isoformat(sep=" ", timespec="seconds")
 
-    # skip-guard: создание sale.order из Saleor-события не должно эхо-пушить (ADR-0020)
+    # skip-guard: creating a sale.order from a Saleor event must not echo-push (ADR-0020)
     res = await odoo.call(_SO, "create", vals_list=[vals], context=_SKIP_CTX)
     order_id = res[0] if isinstance(res, list) else res
     return order_id
@@ -139,28 +139,28 @@ async def fetch_amount_total(odoo: OdooClient, order_id: int) -> Decimal:
 
 
 async def fetch_state(odoo: OdooClient, order_id: int) -> dict | None:
-    """Текущее состояние sale.order для outbound state-sync (Phase 3.4)."""
+    """Current state of a sale.order for outbound state-sync."""
     rows = await odoo.read(_SO, [order_id], ["state", "name"])
     return rows[0] if rows else None
 
 
-async def fetch_justix_status(odoo: OdooClient, order_id: int) -> str | None:
-    """Canonical justix_status of a sale.order for outbound metadata push.
+async def fetch_fulfillment_status(odoo: OdooClient, order_id: int) -> str | None:
+    """Canonical fulfillment_status of a sale.order for outbound metadata push.
 
     Selection fields read as the key string (e.g. 'shipped') or False if unset →
     normalise False/missing to None.
     """
-    rows = await odoo.read(_SO, [order_id], ["justix_status"])
+    rows = await odoo.read(_SO, [order_id], ["fulfillment_status"])
     if not rows:
         return None
-    return rows[0].get("justix_status") or None
+    return rows[0].get("fulfillment_status") or None
 
 
 async def confirm_order(odoo: OdooClient, order_id: int) -> None:
-    """action_confirm → state 'sale'. Idempotent: проверяем state.
+    """action_confirm → state 'sale'. Idempotent: checks state first.
 
-    Передаём saleor_sync_skip context (ADR-0020): подтверждение пришло из Saleor —
-    не эхо-пушим состояние обратно.
+    Passes the saleor_sync_skip context (ADR-0020): the confirmation came from
+    Saleor, so we don't echo-push the state back.
     """
     rows = await odoo.read(_SO, [order_id], ["state"])
     state = rows[0]["state"] if rows else None
@@ -179,6 +179,6 @@ async def cancel_order(odoo: OdooClient, order_id: int) -> None:
     if state == "cancel":
         log.info("order_already_cancelled", order_id=order_id)
         return
-    # action_cancel — public. _action_cancel приватный (RPC blocked в Odoo 19).
-    # skip-guard context (ADR-0020): отмена пришла из Saleor — не эхо-пушим.
+    # action_cancel — public. _action_cancel is private (RPC blocked in Odoo 19).
+    # skip-guard context (ADR-0020): cancellation came from Saleor — don't echo-push.
     await odoo.call(_SO, "action_cancel", ids=[order_id], context=_SKIP_CTX)

@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <!--
-        Outbound dispatch actions (Phase 3.2, ADR-0011).
-        state='code' (а не нативный 'webhook'), чтобы получить:
-          - запись saleor.outbox (observability),
-          - guard по context saleor_sync_skip,
-          - единый секрет/URL из ir.config_parameter.
-        Логика — в models/product_sync.py (_saleor_dispatch).
+        Outbound dispatch actions (ADR-0011).
+        state='code' (rather than the native 'webhook'), to get:
+          - a saleor.outbox record (observability),
+          - a guard via the saleor_sync_skip context,
+          - a single secret/URL sourced from ir.config_parameter.
+        Logic lives in models/product_sync.py (_saleor_dispatch).
     -->
     <record id="action_webhook_product_template" model="ir.actions.server">
         <field name="name">Saleor: dispatch product.template</field>
@@ -22,7 +22,7 @@
         <field name="code">records._saleor_dispatch()</field>
     </record>
 
-    <!-- Phase 3.3 (ADR-0017): stock.quant write → событие per product.product. -->
+    <!-- ADR-0017: stock.quant write → one event per product.product. -->
     <record id="action_webhook_stock_quant" model="ir.actions.server">
         <field name="name">Saleor: dispatch stock.quant</field>
         <field name="model_id" ref="stock.model_stock_quant"/>
@@ -30,7 +30,7 @@
         <field name="code">records._saleor_dispatch_stock()</field>
     </record>
 
-    <!-- Phase 3.4 (ADR-0019): sale.order state change → confirm/cancel в Saleor. -->
+    <!-- ADR-0019: sale.order state change → confirm/cancel in Saleor. -->
     <record id="action_webhook_sale_order_state" model="ir.actions.server">
         <field name="name">Saleor: dispatch sale.order state</field>
         <field name="model_id" ref="sale.model_sale_order"/>
@@ -38,7 +38,7 @@
         <field name="code">records._saleor_dispatch_state()</field>
     </record>
 
-    <!-- Phase 3.4 (ADR-0019/0021): stock.picking done → fulfillment в Saleor. -->
+    <!-- ADR-0019/0021: stock.picking done → fulfillment in Saleor. -->
     <record id="action_webhook_stock_picking_done" model="ir.actions.server">
         <field name="name">Saleor: dispatch stock.picking done</field>
         <field name="model_id" ref="stock.model_stock_picking"/>
@@ -46,7 +46,7 @@
         <field name="code">records._saleor_dispatch_shipped()</field>
     </record>
 
-    <!-- Phase 3.5 (ADR-0023/0027): product.attribute → Saleor global Attribute. -->
+    <!-- ADR-0023/0027: product.attribute → Saleor global Attribute. -->
     <record id="action_webhook_product_attribute" model="ir.actions.server">
         <field name="name">Saleor: dispatch product.attribute</field>
         <field name="model_id" ref="product.model_product_attribute"/>
@@ -54,7 +54,7 @@
         <field name="code">records._saleor_dispatch()</field>
     </record>
 
-    <!-- Phase 3.5: product.attribute.value → Saleor AttributeValue. -->
+    <!-- product.attribute.value → Saleor AttributeValue. -->
     <record id="action_webhook_product_attribute_value" model="ir.actions.server">
         <field name="name">Saleor: dispatch product.attribute.value</field>
         <field name="model_id" ref="product.model_product_attribute_value"/>
@@ -62,7 +62,7 @@
         <field name="code">records._saleor_dispatch()</field>
     </record>
 
-    <!-- Phase 3.5 (ADR-0024): product.product (variant) → Saleor ProductVariant. -->
+    <!-- ADR-0024: product.product (variant) → Saleor ProductVariant. -->
     <record id="action_webhook_product_product" model="ir.actions.server">
         <field name="name">Saleor: dispatch product.product</field>
         <field name="model_id" ref="product.model_product_product"/>
@@ -71,10 +71,11 @@
     </record>
 
     <!--
-        Phase 3.5 (ADR-0026): PTAV.price_extra изменился → ре-синк цен вариантов
-        родительского шаблона. lst_price на product.product НЕ-stored (compute) и
-        триггером быть не может, поэтому ловим источник цены — PTAV — и эмитим
-        событие product.template (template-handler реконсилит цены вариантов).
+        ADR-0026: PTAV.price_extra changed → re-sync variant prices of the parent
+        template. lst_price on product.product is a non-stored compute field and
+        cannot be a trigger, so we catch the source of the price — the PTAV — and
+        emit a product.template event (the template handler reconciles variant
+        prices).
     -->
     <record id="action_webhook_ptav_price" model="ir.actions.server">
         <field name="name">Saleor: dispatch PTAV price_extra</field>

@@ -1,8 +1,8 @@
-"""Bulk seed вариантов: миграция существующих product.template → variant bindings.
+"""Bulk seed variants: migrates existing product.template records → variant bindings.
 
-Phase 3.5 (ADR-0025). Для каждого синканного шаблона прогоняет реконсиляцию набора
-вариантов. Для single-variant продуктов (Phase 3.2 dummy) это усыновляет dummy и
-создаёт binding product.product → variant. Идемпотентно (повторный прогон — no-op).
+ADR-0025. For each already-synced template, runs a reconcile of the variant set.
+For single-variant products (the dummy variant), this adopts the dummy and
+creates the product.product → variant binding. Idempotent (re-running is a no-op).
 """
 
 from __future__ import annotations

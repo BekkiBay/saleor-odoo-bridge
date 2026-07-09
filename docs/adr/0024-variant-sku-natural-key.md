@@ -1,41 +1,44 @@
 # ADR-0024: Variant SKU = product.product.default_code
 
 ## Status
-Accepted (2026-05-23) — Phase 3.5. Расширяет ADR-0007 на уровень вариантов.
+Accepted (2026-05-23). Extends ADR-0007 to the variant level.
 
 ## Context
 
-ADR-0007 закрепил SKU (`default_code`) как natural key между Odoo и Saleor на
-уровне товара. Phase 3.5 опускает этот ключ на уровень варианта: каждый
-`product.product` ↔ один Saleor `ProductVariant`. Saleor требует SKU **глобально
-уникальным** (не per-product). Резолв заказов (Phase 3.1) уже идёт по
-`product.product.default_code`.
+ADR-0007 established SKU (`default_code`) as the natural key between Odoo and
+Saleor at the product level. This decision brings that key down to the variant
+level: each `product.product` maps to one Saleor `ProductVariant`. Saleor requires
+SKU to be **globally unique** (not just unique per product). Order resolution (see
+ADR-0007) already relies on `product.product.default_code`.
 
 ## Decision
 
-- **`ProductVariant.sku = product.product.default_code`.** Единственный natural key
-  для резолва, диффа набора вариантов и переноса остатков при пересоздании.
-- Если `default_code` пустой → **fallback `odoo-<product.product.id>`** (как у
-  товаров в ADR-0007). Глобально уникален, стабилен.
-- Оператор задаёт SKU вариантов вручную либо Odoo автогенерит по шаблону
-  (`TEMPLATE-S-RED`). Мы не навязываем шаблон — читаем что есть.
-- Реконсиляция набора вариантов (`sync_template_variants_to_saleor`) матчит
-  desired (Odoo) и current (Saleor) **по SKU**: совпал → adopt/update, новый →
-  create (bulk), лишний → delete.
+- **`ProductVariant.sku = product.product.default_code`.** This is the single
+  natural key used for resolving a variant, diffing the variant set, and carrying
+  stock over when variants are recreated.
+- If `default_code` is empty, **fall back to `odoo-<product.product.id>`** (as with
+  products in ADR-0007). Globally unique and stable.
+- The operator sets variant SKUs manually, or Odoo auto-generates them from a
+  template (e.g. `TEMPLATE-S-RED`). We don't enforce a template — we just read
+  whatever is there.
+- Reconciling the variant set (`sync_template_variants_to_saleor`) matches desired
+  (Odoo) against current (Saleor) **by SKU**: a match means adopt/update, a new SKU
+  means create (in bulk), and a SKU no longer present means delete.
 
 ## Alternatives considered
 
-- **Variant id (Odoo) как ключ через metadata.** Отброшено: SKU и так нужен и уже
-  natural key для заказов; второй ключ — дубль.
-- **Composite key (template_sku + attribute combo).** Хрупко: переименование
-  атрибута ломает ключ; SKU стабильнее.
+- **Odoo variant id as the key, via metadata.** Rejected: SKU is already needed and
+  is already the natural key for orders; a second key would be redundant.
+- **A composite key (template SKU + attribute combination).** Fragile: renaming an
+  attribute would break the key; SKU is more stable.
 
 ## Consequences
 
-**Pros:** один ключ для всего (catalog, variants, stock, orders); миграция
-single-variant прозрачна (dummy SKU = template SKU = product.product SKU).
+**Pros:** a single key for everything (catalog, variants, stock, orders); the
+single-variant migration is transparent (dummy SKU = template SKU = product.product
+SKU).
 
-**Cons:** коллизия SKU между двумя `product.product` → один перезатрёт другого в
-Saleor. Митигируем: fallback гарантирует уникальность, при ручном дубле — лог
-`sku_collision` (как в order resolution). Контроль уникальности SKU — на стороне
-оператора Odoo.
+**Cons:** a SKU collision between two `product.product` records means one
+overwrites the other in Saleor. Mitigated by the fallback guaranteeing uniqueness;
+on a manual duplicate, we log a `sku_collision` event (as in order resolution).
+Keeping SKUs unique is the responsibility of the Odoo operator.

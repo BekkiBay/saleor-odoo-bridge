@@ -1,7 +1,7 @@
-"""Order-status domain (Odoo → Saleor, Phase 3.4).
+"""Order-status domain (Odoo → Saleor).
 
-Worker перечитывает состояние из Odoo (ADR-0019), поэтому тяжёлые transition-модели
-не нужны — держим то, что реально передаётся в Saleor-мутации.
+The worker re-reads state from Odoo (ADR-0019), so heavyweight transition models
+aren't needed — we keep only what's actually passed to the Saleor mutations.
 """
 
 from __future__ import annotations

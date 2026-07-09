@@ -1,17 +1,18 @@
-"""JWS signature verification для Saleor webhooks.
+"""JWS signature verification for Saleor webhooks.
 
 Reference:
 - https://docs.saleor.io/developer/extending/webhooks/payload-signature
 - https://github.com/saleor/saleor/discussions/9822
 
-Saleor 3.5+ подписывает payload через detached JWS (RS256). Header `Saleor-Signature`
-содержит компактный JWS с пустым telom — реальный body передаётся отдельно.
+Saleor 3.5+ signs the payload via a detached JWS (RS256). The `Saleor-Signature`
+header contains a compact JWS with an empty middle part — the actual body is sent
+separately.
 
-Алгоритм verify:
-1. Fetch JWKS из {saleor_url}/.well-known/jwks.json (кэш 1 час).
-2. Извлечь header.kid из JWS, найти соответствующий JWK.
-3. Восстановить detached JWS: `<protected_header>.<base64(body)>.<signature>`.
-4. Verify через joserfc.
+Verify algorithm:
+1. Fetch JWKS from {saleor_url}/.well-known/jwks.json (1 hour cache).
+2. Extract header.kid from the JWS, find the matching JWK.
+3. Reconstruct the detached JWS: `<protected_header>.<base64(body)>.<signature>`.
+4. Verify via joserfc.
 """
 
 from __future__ import annotations
@@ -39,10 +40,10 @@ def _b64url_no_pad(data: bytes) -> str:
 
 
 def _jwks_url_for(saleor_api_url: str) -> str:
-    """Saleor server hosts JWKS на корне домена.
+    """Saleor server hosts JWKS at the domain root.
 
-    Saleor API endpoint типа https://shop.example.com/graphql/ — JWKS лежит на
-    https://shop.example.com/.well-known/jwks.json. Стрипаем path.
+    A Saleor API endpoint like https://shop.example.com/graphql/ has its JWKS at
+    https://shop.example.com/.well-known/jwks.json. Strip the path.
     """
     from urllib.parse import urlparse
 
@@ -51,7 +52,7 @@ def _jwks_url_for(saleor_api_url: str) -> str:
 
 
 async def fetch_jwks(saleor_api_url: str, *, force_refresh: bool = False) -> dict:
-    """Получить JWKS, кэш 1 час."""
+    """Fetch the JWKS, 1 hour cache."""
     url = _jwks_url_for(saleor_api_url)
     now = time.time()
     cached = _JWKS_CACHE.get(url)
@@ -82,7 +83,7 @@ def _b64url_uint(val: str) -> int:
 
 
 def _rsa_public_key(jwk_dict: dict):
-    """Cryptography RSAPublicKey из JWK (n, e)."""
+    """Cryptography RSAPublicKey from JWK (n, e)."""
     return RSAPublicNumbers(
         e=_b64url_uint(jwk_dict["e"]),
         n=_b64url_uint(jwk_dict["n"]),
@@ -94,22 +95,22 @@ def verify_detached_jws(
     saleor_signature_header: str,
     jwks_data: dict,
 ) -> VerifyResult:
-    """Verify Saleor detached JWS подпись (RS256).
+    """Verify a Saleor detached JWS signature (RS256).
 
-    `saleor_signature_header` имеет вид `<protected>..<signature>` (detached:
-    middle часть — пустая, payload передаётся отдельно как HTTP body).
+    `saleor_signature_header` has the form `<protected>..<signature>` (detached:
+    the middle part is empty, the payload is sent separately as the HTTP body).
 
-    Saleor подписывает по RFC 7797 с `b64:false` (crit=["b64"]) — signing input
-    это `<protected>.<RAW body>` (payload НЕ base64-кодируется). Поддерживаем оба
-    варианта b64 на случай изменения поведения Saleor.
+    Saleor signs per RFC 7797 with `b64:false` (crit=["b64"]) — the signing input
+    is `<protected>.<RAW body>` (the payload is NOT base64-encoded). We support both
+    b64 variants in case Saleor's behavior changes.
     """
     parts = saleor_signature_header.split(".")
     if len(parts) != 3:
         return VerifyResult(False, f"signature header must have 3 parts, got {len(parts)}")
     protected, _empty, signature = parts
     if _empty:
-        # Saleor отправляет с пустым payload (detached). Если не пусто — это
-        # не detached JWS, отказываем.
+        # Saleor sends this with an empty payload (detached). If it's not empty, this
+        # isn't a detached JWS — reject it.
         return VerifyResult(False, "expected detached JWS (empty middle part)")
 
     try:
@@ -124,11 +125,8 @@ def verify_detached_jws(
     if not matching:
         return VerifyResult(False, f"no JWK with kid={kid!r} in JWKS", kid=kid)
 
-    # Signing input = ASCII(protected) + "." + payload (raw при b64:false).
-    if payload_encoded:
-        payload_segment = _b64url_no_pad(raw_body).encode("ascii")
-    else:
-        payload_segment = raw_body
+    # Signing input = ASCII(protected) + "." + payload (raw when b64:false).
+    payload_segment = _b64url_no_pad(raw_body).encode("ascii") if payload_encoded else raw_body
     signing_input = protected.encode("ascii") + b"." + payload_segment
 
     try:

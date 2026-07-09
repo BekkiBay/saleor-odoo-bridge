@@ -1,13 +1,14 @@
-"""Per-record distributed lock (Redis SETNX) — против гонок одновременного create.
+"""Per-record distributed lock (Redis SETNX) — guards against concurrent-create races.
 
-Сценарий: категория создаётся своим webhook-job'ом И рекурсивным ensure-parent
-из job'а ребёнка → оба видят «binding нет» → оба создают дубль. Лок по
-(model, odoo_id) сериализует критическую секцию check-or-create.
+Scenario: a category is created by its own webhook job AND by the recursive
+ensure-parent call from a child job → both see "no binding" → both create a
+duplicate. Locking on (model, odoo_id) serializes the check-or-create critical section.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from contextlib import asynccontextmanager
 
 import redis.asyncio as redis
@@ -15,10 +16,11 @@ import redis.asyncio as redis
 
 @asynccontextmanager
 async def odoo_record_lock(redis_url: str | None, key: str, *, ttl: int = 30, wait: float = 10.0):
-    """Лок saleor_bridge:lock:<key>. redis_url=None → no-op (тесты/без redis).
+    """Lock saleor_bridge:lock:<key>. redis_url=None → no-op (tests/without redis).
 
-    Если за `wait` сек лок не взят — продолжаем без него (binding-проверка всё
-    равно идемпотентна, плюс есть partial-unique backstop в Odoo).
+    If the lock isn't acquired within `wait` seconds, we proceed without it
+    (the binding check is idempotent anyway, plus there's a partial-unique
+    backstop in Odoo).
     """
     if not redis_url:
         yield
@@ -39,8 +41,6 @@ async def odoo_record_lock(redis_url: str | None, key: str, *, ttl: int = 30, wa
         yield
     finally:
         if acquired:
-            try:
+            with contextlib.suppress(Exception):
                 await client.delete(lock_key)
-            except Exception:  # noqa: BLE001
-                pass
         await client.aclose()

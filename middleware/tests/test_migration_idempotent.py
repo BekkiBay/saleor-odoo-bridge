@@ -1,7 +1,7 @@
-"""Idempotency миграции single-variant продукта (Phase 3.5, S7, ADR-0025).
+"""Idempotency of the single-variant product migration (S7, ADR-0025).
 
-Реконсиляция дважды: 1-й прогон усыновляет dummy-вариант (создаёт binding),
-2-й — находит binding и только обновляет цену. Никаких create/delete, дублей нет.
+Reconciliation runs twice: the 1st pass adopts the dummy variant (creates the binding),
+the 2nd finds the binding and only updates the price. No create/delete, no duplicates.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ def _router(request: httpx.Request) -> httpx.Response:
     q = body["query"]
     if "product(id:$id)" in q:
         return httpx.Response(200, json={"data": {"product": {
-            "id": _PRODUCT, "name": "Блузка", "metafields": {},
+            "id": _PRODUCT, "name": "Blouse", "metafields": {},
             "variants": [{"id": _DUMMY, "sku": "SKU-007"}],
         }}})
     if "productVariantChannelListingUpdate(" in q:
@@ -41,7 +41,7 @@ def _router(request: httpx.Request) -> httpx.Response:
 def _odoo() -> FakeOdoo:
     return FakeOdoo(
         variants={7: {"default_code": "SKU-007", "lst_price": 120000.0, "standard_price": 0.0,
-                      "barcode": False, "active": True, "product_tmpl_id": [7, "Блузка"],
+                      "barcode": False, "active": True, "product_tmpl_id": [7, "Blouse"],
                       "product_template_attribute_value_ids": []}},
         bindings={("product.template", 7): _PRODUCT},
     )
@@ -60,13 +60,13 @@ async def test_migration_twice_no_duplicate():
     assert res1.ok and res2.ok
 
     bodies = [json.loads(c.request.content) for c in route.calls]
-    # adopt-путь: НИ create, НИ delete вариантов
+    # adopt path: NEITHER create NOR delete of variants
     assert not any("productVariantBulkCreate(" in b["query"] for b in bodies)
     assert not any("productVariantDelete(" in b["query"] for b in bodies)
-    # цена пушится оба раза (идемпотентный re-push)
+    # price is pushed both times (idempotent re-push)
     assert sum("productVariantChannelListingUpdate(" in b["query"] for b in bodies) == 2
 
-    # ровно один binding product.product:7 → dummy (без дублей)
+    # exactly one binding product.product:7 → dummy (no duplicates)
     assert odoo.bindings[("product.product", 7)] == _DUMMY
     variant_creates = [c for c in odoo.creates
                        if c[0] == "saleor.binding" and c[1].get("model_name") == "product.product"]

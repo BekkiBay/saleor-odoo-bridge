@@ -1,14 +1,12 @@
-"""Unit tests для JWS signature verification."""
+"""Unit tests for JWS signature verification."""
 
 from __future__ import annotations
-
-import pytest
 
 from saleor_bridge.saleor.signature import verify_detached_jws
 
 
 def test_verify_happy_path(rsa_keypair, sign_payload):
-    """Подписанный нашим ключом payload верифицируется."""
+    """A payload signed with our key verifies successfully."""
     _, jwks = rsa_keypair
     body = b'{"hello": "world"}'
     sig = sign_payload(body)
@@ -19,7 +17,7 @@ def test_verify_happy_path(rsa_keypair, sign_payload):
 
 
 def test_verify_fails_on_tampered_body(rsa_keypair, sign_payload):
-    """Если body изменён после подписи — verify fails."""
+    """If the body is modified after signing — verify fails."""
     _, jwks = rsa_keypair
     body = b'{"hello": "world"}'
     sig = sign_payload(body)
@@ -30,7 +28,7 @@ def test_verify_fails_on_tampered_body(rsa_keypair, sign_payload):
 
 
 def test_verify_fails_on_unknown_kid(rsa_keypair, sign_payload):
-    """Если в JWKS нет ключа с нужным kid — verify fails."""
+    """If JWKS has no key with the matching kid — verify fails."""
     body = b"test"
     sig = sign_payload(body)
     empty_jwks = {"keys": []}
@@ -41,7 +39,7 @@ def test_verify_fails_on_unknown_kid(rsa_keypair, sign_payload):
 
 
 def test_verify_fails_on_malformed_signature(rsa_keypair):
-    """Header не в формате <a>..<b> → fail."""
+    """Header not in <a>..<b> format → fail."""
     _, jwks = rsa_keypair
     body = b"test"
 
@@ -51,7 +49,7 @@ def test_verify_fails_on_malformed_signature(rsa_keypair):
 
 
 def test_verify_fails_on_non_detached(rsa_keypair):
-    """Header типа <a>.<b>.<c> (без empty middle) — отказываем."""
+    """Header of the form <a>.<b>.<c> (without an empty middle) — reject."""
     _, jwks = rsa_keypair
     body = b"test"
 

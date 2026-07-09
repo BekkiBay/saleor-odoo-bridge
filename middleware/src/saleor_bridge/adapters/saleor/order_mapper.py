@@ -38,7 +38,7 @@ def _addr_to_domain(a: SaleorAddress | None, *, billing: bool, shipping: bool) -
 
 
 def extract_order(payload: dict[str, Any]) -> SaleorOrder:
-    """Достать order из webhook payload (subscription или legacy)."""
+    """Extract the order from the webhook payload (subscription or legacy)."""
     data = payload
     if "event" in payload and isinstance(payload["event"], dict):
         data = payload["event"]
@@ -51,7 +51,7 @@ def _parse_created(raw: str | None) -> datetime | None:
     if not raw:
         return None
     try:
-        # Saleor отдаёт ISO-8601 с Z. Нормализуем в naive UTC.
+        # Saleor returns ISO-8601 with Z. Normalize to naive UTC.
         return datetime.fromisoformat(raw.replace("Z", "+00:00")).replace(tzinfo=None)
     except ValueError:
         return None
@@ -90,7 +90,7 @@ def saleor_order_to_order(so: SaleorOrder, *, status: OrderStatus) -> Order:
         billing_address=_addr_to_domain(so.billingAddress, billing=True, shipping=False),
         shipping_address=_addr_to_domain(so.shippingAddress, billing=False, shipping=True),
         total=so.total.gross.amount,
-        currency=so.total.gross.currency or "UZS",
+        currency=so.total.gross.currency or "",
         status=status,
         created_at=_parse_created(so.created),
         shipping_net=so.shippingPrice.net.amount,

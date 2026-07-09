@@ -1,4 +1,4 @@
-"""Read product.category из Odoo (JSON-2) → domain.ProductCategory."""
+"""Read product.category from Odoo (JSON-2) → domain.ProductCategory."""
 
 from __future__ import annotations
 

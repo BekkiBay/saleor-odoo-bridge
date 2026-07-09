@@ -1,4 +1,4 @@
-"""SyncResult — общий тип возврата usecases."""
+"""SyncResult — the common return type for usecases."""
 
 from __future__ import annotations
 

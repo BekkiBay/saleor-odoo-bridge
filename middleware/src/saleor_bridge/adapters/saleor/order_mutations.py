@@ -1,8 +1,8 @@
-"""Saleor order lifecycle мутации Odoo → Saleor (Phase 3.4).
+"""Saleor order lifecycle mutations, Odoo → Saleor.
 
-Idempotency: ПЕРЕД каждой мутацией читаем текущий статус и пропускаем, если заказ
-уже в целевом состоянии (Saleor state-machine строгая — иначе error). Pure GraphQL;
-binding / SKU-резолв — в usecase.
+Idempotency: BEFORE each mutation we read the current status and skip it if the
+order is already in the target state (the Saleor state machine is strict — otherwise
+it errors). Pure GraphQL; binding / SKU resolution lives in the usecase.
 """
 
 from __future__ import annotations
@@ -77,7 +77,7 @@ async def confirm_order(client: SaleorClient, order_id: str) -> SyncResult:
     try:
         await run_mutation(client, _CONFIRM, {"id": order_id}, "orderConfirm")
     except SaleorError as exc:
-        # Гонка: статус сменился между check и mutation. Трактуем как no-op.
+        # Race: status changed between check and mutation. Treat as a no-op.
         if "UNCONFIRMED" in str(exc):
             log.info("order_confirm_race_noop", order_id=order_id)
             return SyncResult(ok=True, message="confirm race no-op")
@@ -95,7 +95,7 @@ async def cancel_order(client: SaleorClient, order_id: str) -> SyncResult:
         log.info("order_cancel_skip", order_id=order_id)
         return SyncResult(ok=True, message="already canceled")
     if status in ("FULFILLED", "PARTIALLY_FULFILLED", "RETURNED", "PARTIALLY_RETURNED"):
-        # Saleor запрещает cancel после отгрузки — это return-flow (out of scope).
+        # Saleor forbids cancel after fulfillment — that's a return flow (out of scope).
         log.warning("order_cancel_after_fulfill", order_id=order_id, status=status)
         return SyncResult(ok=False, message=f"cannot cancel {status} order (needs return flow)")
     await run_mutation(client, _CANCEL, {"id": order_id}, "orderCancel")
@@ -118,10 +118,10 @@ async def mark_paid(client: SaleorClient, order_id: str) -> SyncResult:
 def build_fulfillment_lines(
     order_lines: list[dict], sku_qty: dict[str, int], warehouse_id: str
 ) -> list[FulfillmentLine]:
-    """SKU→qty (из Odoo picking) → FulfillmentLine[] по Saleor order lines.
+    """SKU→qty (from the Odoo picking) → FulfillmentLine[] against Saleor order lines.
 
-    quantity = min(отгружено в Odoo, ещё-не-зафулфилл в Saleor). Строки без
-    остатка к фулфиллу или без совпадения SKU пропускаются.
+    quantity = min(shipped in Odoo, not-yet-fulfilled in Saleor). Lines with no
+    remaining quantity to fulfill or no matching SKU are skipped.
     """
     lines: list[FulfillmentLine] = []
     for ol in order_lines:
@@ -184,7 +184,7 @@ async def fulfill_order(
 async def update_order_metadata(
     client: SaleorClient, order_id: str, metadata: dict[str, str]
 ) -> SyncResult:
-    """Write order metadata (canonical justix_status). Idempotent — rewriting the
+    """Write order metadata (canonical fulfillment_status). Idempotent — rewriting the
     same key/value is harmless; no pre-read."""
     inp = [{"key": k, "value": v} for k, v in metadata.items()]
     await run_mutation(client, _UPDATE_METADATA, {"id": order_id, "input": inp}, "updateMetadata")

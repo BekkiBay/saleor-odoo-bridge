@@ -1,4 +1,4 @@
-"""Integration-lite: create_category с respx-моканным Saleor (slug-коллизия retry)."""
+"""Integration-lite: create_category with respx-mocked Saleor (slug-collision retry)."""
 
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ async def test_create_category_retries_on_slug_conflict():
     assert cid == "Q2F0OjE="
     assert route.call_count == 2
 
-    # второй вызов ушёл с суффиксом-резолвом коллизии
+    # the second call went out with the suffix that resolves the collision
     second_body = json.loads(route.calls[1].request.content)
     assert second_body["variables"]["input"]["slug"] == "platya-9"
 

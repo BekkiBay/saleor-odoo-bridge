@@ -1,7 +1,7 @@
-"""Создать аутентифицированный SaleorClient из APL (токен установленного App).
+"""Create an authenticated SaleorClient from the APL (token of the installed App).
 
-Токен кладёт endpoint `/api/register` при установке Saleor App (см. smoke flow и
-scripts/install_bridge_app.py). Fallback — env BRIDGE_SALEOR_APP_TOKEN.
+The token is stored by the `/api/register` endpoint when the Saleor App is installed
+(see the smoke flow and scripts/install_bridge_app.py). Fallback — env BRIDGE_SALEOR_APP_TOKEN.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ log = structlog.get_logger()
 
 
 class NoSaleorToken(RuntimeError):
-    """Нет токена App — нужно установить bridge-app (install_bridge_app.py)."""
+    """No App token — the bridge-app needs to be installed (install_bridge_app.py)."""
 
 
 async def get_saleor_client(settings: Settings) -> SaleorClient:
@@ -30,7 +30,7 @@ async def get_saleor_client(settings: Settings) -> SaleorClient:
         token = auth.token if auth else ""
     if not token:
         raise NoSaleorToken(
-            f"нет Saleor App токена для {settings.saleor_api_url} — установи bridge-app "
-            f"(python scripts/install_bridge_app.py) либо задай BRIDGE_SALEOR_APP_TOKEN"
+            f"no Saleor App token for {settings.saleor_api_url} — install the bridge-app "
+            f"(python scripts/install_bridge_app.py) or set BRIDGE_SALEOR_APP_TOKEN"
         )
     return SaleorClient(api_url=settings.saleor_api_url, app_token=token)

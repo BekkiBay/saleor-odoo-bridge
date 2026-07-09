@@ -43,7 +43,7 @@ def test_wrong_secret_401(client):
     r = client.post("/api/odoo-events", params={"secret": "nope"}, json=_BODY)
     assert r.status_code == 401
     assert r.json()["ok"] is False
-    assert client.app.state.arq_pool.calls == []  # ничего не поставили в очередь
+    assert client.app.state.arq_pool.calls == []  # nothing was queued
 
 
 def test_correct_secret_queues(client):
@@ -57,7 +57,7 @@ def test_correct_secret_queues(client):
 
 
 def test_missing_secret_422(client):
-    # secret — обязательный query param.
+    # secret — required query param.
     r = client.post("/api/odoo-events", json=_BODY)
     assert r.status_code == 422
 

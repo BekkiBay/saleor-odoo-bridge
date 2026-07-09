@@ -1,9 +1,9 @@
-"""Token exchange endpoint — Saleor POST'ит сюда после установки App.
+"""Token exchange endpoint — Saleor POSTs here after the App is installed.
 
 Reference: https://docs.saleor.io/developer/extending/apps/installing-apps#token-exchange
 
-Saleor шлёт `auth_token` в body + `saleor-api-url` в headers (или body).
-Endpoint должен быть **идемпотентным** — Saleor может ретраить при install.
+Saleor sends `auth_token` in the body + `saleor-api-url` in the headers (or body).
+The endpoint must be **idempotent** — Saleor may retry during install.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ async def _verify_app_token(api_url: str, token: str) -> bool:
     client = SaleorClient(api_url=api_url, app_token=token)
     try:
         body = await client.execute("query { app { id } }")
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — fail closed on any verification error
         log.warning("register_token_verify_error", error=str(exc))
         return False
     app = (body.get("data") or {}).get("app") or {}
@@ -51,12 +51,12 @@ async def register(
 ) -> dict:
     body = await request.json()
     token = body.get("auth_token") or body.get("token") or ""
-    # Ключуем APL по КАНОНИЧЕСКОМУ settings.saleor_api_url, а НЕ по тому, что
-    # Saleor сообщил в заголовке/боди: Saleor анонсит свой публичный URL
-    # (часто недостижимый localhost:8000), а worker/CLI ходят на
-    # settings.saleor_api_url (host.docker.internal:8000) — токен должен лежать
-    # под тем же ключом, иначе get_saleor_client его не найдёт. Тот же принцип,
-    # что и для JWKS в webhooks.py. Реальный анонс сохраняем в логе.
+    # Key the APL by the CANONICAL settings.saleor_api_url, NOT by what Saleor
+    # reported in the header/body: Saleor announces its public URL (often an
+    # unreachable localhost:8000), while the worker/CLI talk to
+    # settings.saleor_api_url (host.docker.internal:8000) — the token must be stored
+    # under the same key, otherwise get_saleor_client won't find it. Same principle
+    # as for JWKS in webhooks.py. We keep the actual announced URL in the log.
     announced = body.get("saleor_api_url") or saleor_api_url
     api_url = settings.saleor_api_url
 
@@ -78,7 +78,7 @@ async def register(
             app_id=body.get("app_id", ""),
             domain=saleor_domain or "",
         )
-        # set — идемпотентно (overwrite ОК, Saleor может ретраить с тем же или новым токеном).
+        # set — idempotent (overwrite is OK, Saleor may retry with the same or a new token).
         await apl.set(auth)
         log.info(
             "register_ok",

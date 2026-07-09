@@ -1,20 +1,20 @@
-# ADR-0007: SKU как natural key, Odoo ID как fallback через mapping table
+# ADR-0007: SKU as the natural key, with Odoo ID as a mapping-table fallback
 
 ## Status
 Accepted (2026-05-21)
 
 ## Context
 
-При получении из Saleor `OrderLine` нужно найти соответствующий `product.product` в Odoo. Два варианта:
+When processing a Saleor `OrderLine`, we need to find the corresponding `product.product` in Odoo. Two options:
 
-1. **По SKU:** `product.product.default_code == OrderLine.productSku`. Human-readable, переживает миграции, но `default_code` not-unique by SQL constraint (unique только по convention).
-2. **По internal ID через mapping:** lookup в `saleor.binding` где `saleor_id == OrderLine.variant.id`.
+1. **By SKU:** `product.product.default_code == OrderLine.productSku`. Human-readable, survives migrations, but `default_code` isn't unique by SQL constraint (only unique by convention).
+2. **By internal ID via a mapping table:** look up `saleor.binding` where `saleor_id == OrderLine.variant.id`.
 
-Стартовый каталог (30 товаров из xlsx) — все имеют SKU вида `SKU-001..030`. Они валидируются как unique при импорте через `lib/products.py`. Будущие импорты также через SKU. Saleor ProductVariant.sku — обязательное поле, мы его всегда заполняем.
+The initial catalog (30 products from an xlsx import) all have SKUs of the form `SKU-001..030`. They're validated as unique at import time via `lib/products.py`. Future imports also go through SKU. Saleor's `ProductVariant.sku` is a required field, and we always populate it.
 
 ## Decision
 
-**Primary key для resolve product variant: SKU.**
+**Primary key for resolving a product variant: SKU.**
 
 ```python
 def resolve_variant(saleor_sku: str, saleor_id: str) -> int | None:
@@ -36,29 +36,29 @@ def resolve_variant(saleor_sku: str, saleor_id: str) -> int | None:
     return None
 ```
 
-**При создании binding** заполняем оба: SKU и `saleor.binding` row. SKU — для быстрого happy-path lookup, mapping — для edge cases (SKU collision, SKU change, manual data fix).
+**When a binding is created**, we populate both: the SKU and the `saleor.binding` row. SKU is for the fast happy-path lookup; the mapping is for edge cases (SKU collision, SKU change, manual data fixes).
 
-**SKU collision policy:** если в Odoo появилось 2+ `product.product` с одинаковым `default_code` — это data quality bug. Логируем WARNING + Slack alert + fall back на mapping. Не падаем.
+**SKU collision policy:** if 2+ `product.product` records in Odoo end up with the same `default_code`, that's a data quality bug. We log a WARNING, send a Slack alert, and fall back to the mapping. We don't fail the sync.
 
 ## Alternatives considered
 
-1. **Only mapping table, ignore SKU.** **Отброшено:** mapping = индексный read на каждый lookup. SKU search — тот же индекс (`default_code` индексирован), но проще для human debugging ("найди мне товар X в обеих системах").
+1. **Only the mapping table, ignore SKU.** **Rejected:** the mapping is an indexed read on every lookup anyway. SKU search uses the same kind of index (`default_code` is indexed), but it's simpler for human debugging ("find me product X in both systems").
 
-2. **Only SKU, no mapping.** **Отброшено:** SKU потеряли → весь sync поломан. Mapping = безопасность.
+2. **Only SKU, no mapping.** **Rejected:** if the SKU is lost, the whole sync breaks. The mapping is a safety net.
 
-3. **Composite key (SKU + barcode + name).** **Отброшено:** YAGNI. Усложнение без бизнес-ценности.
+3. **Composite key (SKU + barcode + name).** **Rejected:** YAGNI. Added complexity without business value.
 
 ## Consequences
 
 **Pros:**
-- Fast lookup happy path (SKU index).
-- Survives Odoo migrations (XMLIDs могут сбиться при импорте-экспорте, SKU — нет).
-- Human-debuggable: оператор видит SKU в обеих системах.
+- Fast happy-path lookup (SKU index).
+- Survives Odoo migrations (XMLIDs can shift on import/export, SKU doesn't).
+- Human-debuggable: an operator can see the SKU in both systems.
 
 **Cons:**
-- SKU mutable в Odoo — если оператор поменял `default_code` → sync поломан до ручного fix mapping.
-- SKU collision (два товара с одинаковым default_code) — data bug, требует human intervention.
+- SKU is mutable in Odoo — if an operator changes `default_code`, sync breaks until the mapping is fixed manually.
+- SKU collisions (two products with the same `default_code`) are a data bug requiring human intervention.
 
 **Mitigation:**
-- В Odoo module `saleor_sync` добавить SQL constraint **`unique(default_code) WHERE active=true`** (Phase 3.2 task, не Phase 3.0). Это enforce'ит uniqueness на новые данные.
-- При наблюдении SKU change in Odoo (через `base.automation` on `product.product` write) — auto-update `saleor.binding.last_sync_*` + trigger re-sync.
+- Add a SQL constraint in the `saleor_sync` Odoo module: **`unique(default_code) WHERE active=true`** (a follow-up task, not part of the initial scaffold). This enforces uniqueness for new data.
+- When a SKU change in Odoo is observed (via `base.automation` on `product.product` write), auto-update `saleor.binding.last_sync_*` and trigger a re-sync.

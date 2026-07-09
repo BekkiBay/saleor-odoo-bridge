@@ -1,6 +1,6 @@
-"""Email alert sender (ADR-0008). No-op если ops email / SMTP не заданы.
+"""Email alert sender (ADR-0008). No-op when the ops email / SMTP host is unset.
 
-SMTP-конфиг опционален. В Phase 3.1 если нет SMTP — logs only.
+SMTP config is optional — without it, failures are logged and nothing is sent.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ def send_email_alert(
     smtp_port: int = 25,
     smtp_user: str = "",
     smtp_password: str = "",
-    from_addr: str = "saleor-bridge@justix.uz",
+    from_addr: str = "saleor-bridge@localhost",
 ) -> None:
     if not ops_email or not smtp_host:
         log.debug("email_skipped", reason="no ops_email or smtp_host")

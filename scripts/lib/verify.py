@@ -1,4 +1,4 @@
-"""Финальные проверки. Возвращает (all_passed, [(name, ok, detail), ...])."""
+"""Post-setup checks. Returns [(name, ok, detail), ...]."""
 
 from __future__ import annotations
 
@@ -10,7 +10,6 @@ import odoorpc
 import requests
 
 from .client import Config
-
 
 CheckResult = tuple[str, bool, str]
 
@@ -28,9 +27,8 @@ def _compose_dir() -> str:
     return str(here.parent.parent.parent)
 
 
-def run_checks(cfg: Config, odoo: odoorpc.ODOO, *, expected_modules: list[str],
-               expected_root_cats: list[str], expected_total_cats: int,
-               expected_products: int) -> list[CheckResult]:
+def run_checks(cfg: Config, odoo: odoorpc.ODOO, *, expected_modules: list[str]) -> list[CheckResult]:
+    """Verify that the Odoo side of the bridge is installed and configured."""
 
     def containers() -> tuple[bool, str]:
         out = subprocess.run(
@@ -59,107 +57,55 @@ def run_checks(cfg: Config, odoo: odoorpc.ODOO, *, expected_modules: list[str],
 
     def company_currency() -> tuple[bool, str]:
         c = odoo.env["res.company"].browse(odoo.env["res.company"].search([], limit=1)[0])
-        return c.currency_id.name == "UZS", f"currency={c.currency_id.name}"
+        name = c.currency_id.name
+        return name == cfg.currency_code, f"currency={name} (expected {cfg.currency_code})"
 
     def company_country() -> tuple[bool, str]:
         c = odoo.env["res.company"].browse(odoo.env["res.company"].search([], limit=1)[0])
-        return (c.country_id.code or "") == "UZ", f"country={c.country_id.code}"
+        code = c.country_id.code or ""
+        return code == cfg.country_code, f"country={code} (expected {cfg.country_code})"
 
     def user_tz() -> tuple[bool, str]:
         u = odoo.env["res.users"].browse(odoo.env.uid)
-        return u.tz == "Asia/Tashkent", f"tz={u.tz}"
+        return u.tz == cfg.timezone, f"tz={u.tz} (expected {cfg.timezone})"
 
-    def root_categories() -> tuple[bool, str]:
-        Cat = odoo.env["product.category"]
-        ids = Cat.search([("parent_id", "=", False), ("name", "in", expected_root_cats)])
-        names = sorted(r["name"] for r in Cat.read(ids, ["name"]))
-        return set(names) >= set(expected_root_cats), f"roots={names}"
+    def bridge_models_present() -> tuple[bool, str]:
+        """saleor_sync installs these; without them nothing can sync."""
+        Model = odoo.env["ir.model"]
+        wanted = {"saleor.binding", "saleor.outbox"}
+        ids = Model.search([("model", "in", list(wanted))])
+        found = {r["model"] for r in Model.read(ids, ["model"])}
+        return found == wanted, f"models={sorted(found)}"
 
-    def child_categories() -> tuple[bool, str]:
-        Cat = odoo.env["product.category"]
-        root_ids = Cat.search([("parent_id", "=", False), ("name", "in", expected_root_cats)])
-        child_ids = Cat.search([("parent_id", "in", root_ids)])
-        expected_children = expected_total_cats - len(expected_root_cats)
-        return len(child_ids) == expected_children, (
-            f"children={len(child_ids)} (expected {expected_children})"
-        )
-
-    def product_count() -> tuple[bool, str]:
-        Tmpl = odoo.env["product.template"]
-        ids = Tmpl.search([("default_code", "like", "SKU-%")])
-        return len(ids) == expected_products, f"products={len(ids)} (expected {expected_products})"
-
-    def all_have_sku() -> tuple[bool, str]:
-        Tmpl = odoo.env["product.template"]
-        ids = Tmpl.search([("default_code", "like", "SKU-%")])
-        recs = Tmpl.read(ids, ["default_code"])
-        empty = [r["id"] for r in recs if not r["default_code"]]
-        return not empty, f"missing_sku_ids={empty}"
-
-    def all_have_real_category() -> tuple[bool, str]:
-        Tmpl = odoo.env["product.template"]
-        ids = Tmpl.search([("default_code", "like", "SKU-%")])
-        recs = Tmpl.read(ids, ["default_code", "categ_id"])
-        bad = [r["default_code"] for r in recs if not r["categ_id"] or r["categ_id"][0] == 1]
-        return not bad, f"with_default_category={bad}"
-
-    def sample_price() -> tuple[bool, str]:
-        Tmpl = odoo.env["product.template"]
-        ids = Tmpl.search([("default_code", "=", "SKU-001")])
-        if not ids:
-            return False, "SKU-001 не найден"
-        rec = Tmpl.read(ids[0], ["list_price"])[0]
-        ok = abs(rec["list_price"] - 450000) < 0.01
-        return ok, f"SKU-001 list_price={rec['list_price']}"
-
-    def uzs_symbol() -> tuple[bool, str]:
-        Currency = odoo.env["res.currency"].with_context(active_test=False)
-        ids = Currency.search([("name", "=", "UZS")])
-        sym = Currency.read(ids[0], ["symbol"])[0]["symbol"]
-        return sym == "сўм", f"UZS symbol={sym!r}"
-
-    def custom_view_present() -> tuple[bool, str]:
-        View = odoo.env["ir.ui.view"]
-        from .views import VIEW_NAME  # local import to avoid cycle
-        ids = View.search([("name", "=", VIEW_NAME), ("model", "=", "product.template")])
-        return bool(ids), f"view '{VIEW_NAME}' ids={ids}"
+    def fulfillment_field_present() -> tuple[bool, str]:
+        """The renamed status field the middleware reads back over JSON-RPC."""
+        Field = odoo.env["ir.model.fields"]
+        ids = Field.search([
+            ("model", "=", "sale.order"),
+            ("name", "in", ["fulfillment_status", "delivered_to_customer"]),
+        ])
+        names = sorted(r["name"] for r in Field.read(ids, ["name"]))
+        return len(names) == 2, f"fields={names}"
 
     return [
         _check("Containers running (db + odoo)", containers),
         _check("Odoo responds at /web/database/manager", http_ok),
         _check(f"Database '{cfg.db_name}' exists", db_present),
         _check(f"{len(expected_modules)} modules installed", modules_installed),
-        _check("Company currency = UZS", company_currency),
-        _check("Company country = UZ", company_country),
-        _check("Admin user timezone = Asia/Tashkent", user_tz),
-        _check(f"{len(expected_root_cats)} root categories", root_categories),
-        _check(f"{expected_total_cats - len(expected_root_cats)} child categories", child_categories),
-        _check(f"{expected_products} products in product.template", product_count),
-        _check("All products have non-empty default_code", all_have_sku),
-        _check("All products have non-default categ_id", all_have_real_category),
-        _check("Sample: SKU-001 list_price == 450000", sample_price),
-        _check("UZS currency symbol = 'сўм' (not 'лв')", uzs_symbol),
-        _check("Custom product list view installed", custom_view_present),
+        _check(f"Company currency = {cfg.currency_code}", company_currency),
+        _check(f"Company country = {cfg.country_code}", company_country),
+        _check(f"Admin user timezone = {cfg.timezone}", user_tz),
+        _check("saleor.binding + saleor.outbox models exist", bridge_models_present),
+        _check("sale.order has fulfillment_status + delivered_to_customer", fulfillment_field_present),
     ]
 
 
 def print_table(results: list[CheckResult]) -> bool:
-    GREEN, RED, RESET = "\033[32m", "\033[31m", "\033[0m"
-    all_ok = all(ok for _, ok, _ in results)
-
-    name_w = max(len(n) for n, _, _ in results) + 2
-    print("\n" + "─" * (name_w + 50))
-    print(f"{'Check':<{name_w}} Result   Detail")
-    print("─" * (name_w + 50))
+    """Print the check table; return True when everything passed."""
+    width = max(len(name) for name, _, _ in results) + 2
+    all_ok = True
     for name, ok, detail in results:
-        mark = f"{GREEN}[✓]{RESET}" if ok else f"{RED}[✗]{RESET}"
-        status = f"{GREEN}OK{RESET}" if ok else f"{RED}FAIL{RESET}"
-        print(f"{mark} {name:<{name_w - 4}} {status:<8} {detail}")
-    print("─" * (name_w + 50))
-
-    if all_ok:
-        print(f"{GREEN}✅ All {len(results)} checks passed.{RESET}")
-    else:
-        failed = sum(1 for _, ok, _ in results if not ok)
-        print(f"{RED}❌ {failed}/{len(results)} checks failed.{RESET}")
+        mark = "\033[32m✓\033[0m" if ok else "\033[31m✗\033[0m"
+        all_ok = all_ok and ok
+        print(f"  {mark} {name.ljust(width)} {detail}")
     return all_ok

@@ -1,4 +1,4 @@
-"""Админ-операции каталога: resolve channel + wipe (ADR-0013 `wipe` команда)."""
+"""Catalog admin operations: resolve channel + wipe (ADR-0013 `wipe` command)."""
 
 from __future__ import annotations
 
@@ -41,11 +41,11 @@ mutation($id: ID!){ categoryDelete(id:$id){ errors{ message } } }
 
 
 async def resolve_channel(client: SaleorClient, slug: str) -> dict:
-    """Вернуть {id, slug, currencyCode}. Бросает если канал не найден."""
+    """Return {id, slug, currencyCode}. Raises if the channel is not found."""
     data = await query_data(client, _CHANNEL, {"slug": slug})
     ch = data.get("channel")
     if not ch:
-        raise RuntimeError(f"Saleor channel '{slug}' не найден")
+        raise RuntimeError(f"Saleor channel '{slug}' not found")
     return ch
 
 
@@ -63,7 +63,7 @@ async def _page_ids(client: SaleorClient, query: str, root: str) -> list[str]:
 
 
 async def wipe_catalog(client: SaleorClient) -> dict:
-    """Удалить ВСЕ products + root categories (каскадом всё дерево). DESTRUCTIVE."""
+    """Delete ALL products + root categories (cascades the whole tree). DESTRUCTIVE."""
     product_ids = await _page_ids(client, _LIST_PRODUCTS, "products")
     deleted_products = 0
     for i in range(0, len(product_ids), 100):

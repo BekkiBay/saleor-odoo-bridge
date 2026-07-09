@@ -17,7 +17,7 @@ from saleor_bridge.queue.pool import make_arq_pool
 
 
 def _configure_logging(level: str) -> None:
-    """Structlog → JSON для prod, pretty для dev."""
+    """Structlog → JSON for prod, pretty for dev."""
     logging.basicConfig(
         format="%(message)s",
         stream=sys.stdout,
@@ -60,7 +60,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="Saleor ↔ Odoo Bridge",
         version=__version__,
-        description="Phase 3.1 — Saleor→Odoo orders+customers. См. docs/phase-3-integration-research.md.",
+        description="Bidirectional Saleor ↔ Odoo sync for orders, customers, products, and stock.",
         lifespan=lifespan,
     )
 

@@ -1,47 +1,52 @@
-# ADR-0025: Migration policy для existing single-variant продуктов
+# ADR-0025: Migration policy for existing single-variant products
 
 ## Status
-Accepted (2026-05-23) — Phase 3.5. Закрывает долг из ADR-0012.
+Accepted (2026-05-23). Closes out the debt noted in ADR-0012.
 
 ## Context
 
-После Phase 3.2 в Saleor 30 продуктов, у каждого один dummy `ProductVariant`
-(SKU = `template.default_code`, ADR-0012). Bindings есть только на уровне
-`product.template`; на `product.product` (вариант) — НЕТ. Phase 3.5 вводит
-per-variant bindings и multi-variant. Нельзя сломать 30 живых продуктов и активные
-заказы (SKU стабилен, ADR-0024).
+After the initial catalog sync, Saleor has 30 products, each with a single dummy
+`ProductVariant` (SKU = `template.default_code`, ADR-0012). Bindings only exist at
+the `product.template` level; there are NO bindings at the `product.product`
+(variant) level. This decision introduces per-variant bindings and multi-variant
+support. We can't break the 30 live products or any active orders (SKU is stable,
+per ADR-0024).
 
 ## Decision
 
-Авторитетная реконсиляция набора вариантов (`sync_template_variants_to_saleor`):
-desired (active `product.product` шаблона) vs current (Saleor variants), diff по SKU.
+An authoritative reconciliation of the variant set
+(`sync_template_variants_to_saleor`): desired (the template's active
+`product.product` records) vs. current (Saleor variants), diffed by SKU.
 
-1. **Single-variant без атрибутов** → desired = [1 вариант, SKU = template SKU] =
-   current (dummy). Совпадение по SKU → **adopt**: создаём binding
-   `product.product` → существующий dummy-вариант. Saleor НЕ меняется. Цена
-   переустанавливается (idempotent).
-2. **Template получает атрибуты** → Odoo пересоздаёт `product.product` (новые SKU).
-   desired = новые варианты, current = старый dummy. Dummy SKU ∉ desired →
-   **delete** dummy; новые → **bulk create** с attribute-assignments.
-3. **Initial migration** — CLI `bulk-seed-variants` прогоняет реконсиляцию по всем
-   синканным шаблонам: 30 single-variant продуктов получают variant bindings.
-4. **Self-healing** — даже без CLI: первое же событие на `product.product`
-   (правка/остаток) усыновляет dummy и создаёт binding.
+1. **Single variant, no attributes** → desired = [1 variant, SKU = template SKU] =
+   current (the dummy). SKU match → **adopt**: create a binding from
+   `product.product` to the existing dummy variant. Saleor is NOT changed. The price
+   is re-applied (idempotent).
+2. **The template gains attributes** → Odoo recreates its `product.product` records
+   (new SKUs). desired = the new variants, current = the old dummy. The dummy SKU
+   is not in desired → **delete** the dummy; the new variants are **bulk created**
+   with their attribute assignments.
+3. **Initial migration** — the `bulk-seed-variants` CLI command runs the
+   reconciliation across every synced template: the 30 single-variant products get
+   variant bindings.
+4. **Self-healing** — even without running the CLI, the very first event on a
+   `product.product` (an edit or stock change) adopts the dummy and creates the
+   binding.
 
 ## Alternatives considered
 
-- **Wipe + re-seed всего каталога.** Отброшено: ломает активные заказы и URL'ы,
-  меняет все Saleor ID без нужды.
-- **Per-variant unlink-триггер для удаления dummy.** Хрупко: Odoo при
-  регенерации вариантов archive'ит/unlink'ает непредсказуемо. Реконсиляция по
-  шаблону надёжнее (один authoritative diff).
+- **Wipe and re-seed the whole catalog.** Rejected: breaks active orders and URLs,
+  and changes every Saleor ID unnecessarily.
+- **A per-variant unlink trigger to remove the dummy.** Fragile: when Odoo
+  regenerates variants, it archives/unlinks them unpredictably. Reconciling per
+  template is more reliable (a single authoritative diff).
 
 ## Consequences
 
-**Pros:** zero-downtime миграция; идемпотентно; SKU/заказы не ломаются;
-self-healing страхует от пропущенного CLI.
+**Pros:** zero-downtime migration; idempotent; SKUs and orders aren't broken;
+self-healing covers a missed CLI run.
 
-**Cons:** при переходе single→multi dummy пересоздаётся (delete+create) → новый
-variant ID, остаток на нём пропадает → нужен **stock resync** после пересоздания
-(см. подводные камни Phase 3.5: stock привязан к variant_id). Реконсиляция дёргает
-stock-sync для новых вариантов через стандартный `product.product` flow.
+**Cons:** on the single→multi transition, the dummy is recreated (delete+create) →
+a new variant ID, and its stock disappears → a **stock resync** is needed after
+recreation (stock is tied to the variant_id). The reconciliation triggers stock sync
+for the new variants through the standard `product.product` flow.

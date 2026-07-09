@@ -1,71 +1,73 @@
-# ADR-0006: Conflict resolution — Odoo всегда побеждает, divergence в chatter
+# ADR-0006: Conflict resolution — Odoo always wins, divergence logged in chatter
 
 ## Status
 Accepted (2026-05-21)
 
 ## Context
 
-Source-of-truth для каталога / стока / order-статусов = Odoo (см. [research doc §1](../phase-3-integration-research.md)).
+The source of truth for the catalog / stock / order statuses is Odoo.
 
-Saleor Dashboard всё равно позволяет редактировать product fields (name, description, price). Если оператор изменит товар в Saleor — после следующего push'а из Odoo его изменение затрётся. Это может быть:
-- intentional (admin поправил опечатку, потом её перенесли в Odoo);
-- unintentional (admin не знал что Saleor read-only);
-- legitimate emergency (Odoo down, надо срочно поправить).
+The Saleor Dashboard still allows editing product fields (name, description, price). If an operator changes a product in Saleor, the next push from Odoo will overwrite that change. This can be:
+- intentional (an admin fixed a typo, planning to carry it over to Odoo later);
+- unintentional (the admin didn't know Saleor was read-only in practice);
+- a legitimate emergency (Odoo is down, something needs an urgent fix).
 
-Нужна policy.
+We need a policy.
 
 ## Decision
 
-**Odoo always wins** для всех мастер-сущностей: products, variants, categories, attributes, stocks, prices.
+**Odoo always wins** for all master entities: products, variants, categories, attributes, stock, prices.
 
-При обнаружении divergence (значение в Saleor отличается от Odoo при следующей синке) — middleware **не блокирует sync**, выполняет overwrite, но логирует событие двумя способами:
+When divergence is detected (the value in Saleor differs from Odoo at the next sync), the middleware **does not block the sync** — it performs the overwrite, but logs the event in two ways:
 
-1. **structlog WARNING** с `event=divergence`, `model=Product`, `saleor_id=...`, `odoo_value=...`, `saleor_value=...`.
-2. **Post в chatter** соответствующего `product.template` / `sale.order` — `mail.message` с body: `[Saleor sync] Divergence detected at {timestamp}: field '{name}' was '{saleor_value}' in Saleor, overwritten with '{odoo_value}' from Odoo.`
+1. **A structlog WARNING** with `event=divergence`, `model=Product`, `saleor_id=...`, `odoo_value=...`, `saleor_value=...`.
+2. **A post to the chatter** of the corresponding `product.template` / `sale.order` — a `mail.message` with body: `[Saleor sync] Divergence detected at {timestamp}: field '{name}' was '{saleor_value}' in Saleor, overwritten with '{odoo_value}' from Odoo.`
 
-Operator увидит в Odoo UI на product page вкладку "Messages" с историей divergence. Достаточно для post-mortem без блокировки бизнес-операций.
+The operator sees the divergence history in the "Messages" tab on the product page in the Odoo UI. That's enough for a post-mortem without blocking business operations.
 
-Для **orders** и **customers** policy инвертирована: Saleor wins (заказ родился на витрине). Дивергенцию здесь регистрируем только если в Odoo появился manual edit `sale.order` после `ORDER_CREATED` (редкий кейс).
+For **orders** and **customers** the policy is inverted: Saleor wins (the order originated on the storefront). Divergence here is only logged if a manual edit to `sale.order` appears in Odoo after `ORDER_CREATED` (a rare case).
 
 ## Alternatives considered
 
-1. **Bidirectional sync с conflict markers.** Как git merge conflicts. **Отброшено:** нет UI чтобы оператор разрешал конфликты. Сложно.
+1. **Bidirectional sync with conflict markers.** Like git merge conflicts. **Rejected:** there's no UI for an operator to resolve conflicts. Too complex.
 
-2. **Read-only Saleor admin для caталога.** Через Saleor permissions: убрать `MANAGE_PRODUCTS` у staff users. **Отброшено:** заказчик хочет manual override option (emergency-fix). Снимет permission — потеряет fallback.
+2. **Read-only Saleor admin for the catalog.** Remove `MANAGE_PRODUCTS` from staff users via Saleor permissions. **Rejected:** we want to keep a manual override option for emergency fixes. Removing the permission would remove that fallback.
 
-3. **Stop sync on divergence, alert admin.** **Отброшено:** один divergence блокирует ВСЕ обновления товара. Хрупко.
+3. **Stop syncing on divergence, alert an admin.** **Rejected:** a single divergence would block ALL updates to that product. Too fragile.
 
 ## Consequences
 
 **Pros:**
-- Простая ментальная модель: "Saleor — это окно в Odoo".
-- Никаких застоев в sync — overwrite всегда выполняется.
-- Audit trail в chatter.
+- Simple mental model: "Saleor is a window into Odoo."
+- No sync stalls — the overwrite always goes through.
+- Audit trail in the chatter.
 
 **Cons:**
-- Если admin случайно поправил Saleor и не заметил overwrite — изменение потеряно.
-- Chatter может засраться сообщениями при частых правках "не в той системе".
+- If an admin edits Saleor and doesn't notice the overwrite, the change is lost.
+- The chatter can get cluttered with messages from frequent edits made "in the wrong system."
 
 **Mitigation:**
-- Slack-alert (channel `#saleor-sync-divergence`) на любой divergence event — admin видит сразу.
-- Phase 4: dashboard view "divergence in last 24h" с фильтром по моделям.
+- A Slack alert (channel `#saleor-sync-divergence`) on any divergence event — the admin sees it immediately.
+- A future dashboard view: "divergence in the last 24h" filterable by model.
 
-## Addendum (Phase 3.2 hardening, 2026-05-23)
+## Addendum (hardening pass, 2026-05-23)
 
-**Реализованная divergence для product (name):** на update `sync_product` читает
-текущее Saleor `name` + `metafields['odoo_synced_name']`; при ручной правке в Saleor
-→ chatter `product.template` (`message_post`) + overwrite. Проверено вживую.
+**Divergence handling implemented for the product name:** on update, `sync_product` reads
+the current Saleor `name` plus `metafields['odoo_synced_name']`; on a manual edit in Saleor
+it posts to the `product.template` chatter (`message_post`) and overwrites. Verified live.
 
-**Category parent-move — divergence, которую НЕЛЬЗЯ разрешить overwrite'ом.**
-Saleor API не умеет менять parent категории (`CategoryInput` без `parent`, move-мутации
-нет — подтверждено интроспекцией). Поэтому при смене `parent_id` в Odoo «Odoo wins»
-неприменим. Поведение: `sync_category` детектит расхождение parent (Saleor vs желаемый),
-пишет `log.warning('category_parent_diverged')` и помечает `saleor.binding.sync_state=
-'diverged'` + `error_message` (видно в Bindings dashboard, фильтр Diverged). Имя при
-этом синкается. Полный re-parent — через `wipe`+`bulk-seed` (см. operations.md §4).
-У `product.category` нет mail.thread → chatter недоступен, divergence отражаем в binding.
+**Category parent-move — a divergence that CANNOT be resolved by overwrite.**
+The Saleor API cannot change a category's parent (`CategoryInput` has no `parent`, and there
+is no move mutation — confirmed by introspection). So when `parent_id` changes in Odoo,
+"Odoo wins" doesn't apply. Behavior: `sync_category` detects the parent mismatch (Saleor vs.
+desired), logs `log.warning('category_parent_diverged')`, and marks
+`saleor.binding.sync_state='diverged'` plus `error_message` (visible in the Bindings
+dashboard, filterable by "Diverged"). The name still syncs normally. A full re-parent
+requires `wipe` + `bulk-seed` (see `operations.md` §4). `product.category` has no
+mail.thread, so chatter isn't available there — divergence is reflected on the binding
+instead.
 
-**Layer-уточнение (failed-sync):** Saleor-сторонний сбой синки виден в
-`saleor.binding.sync_state='failed'`, а НЕ в `saleor.outbox` (outbox = аудит hop'а
-Odoo→middleware, который при сбое Saleor всё равно `confirmed/200`). См.
-hardening-results.md §1.
+**Layer clarification (failed sync):** a failure on the Saleor side of the sync shows up in
+`saleor.binding.sync_state='failed'`, NOT in `saleor.outbox` (the outbox audits the
+Odoo→middleware hop, which still returns `confirmed/200` even if the subsequent Saleor call
+fails).

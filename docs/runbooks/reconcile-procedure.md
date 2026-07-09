@@ -1,35 +1,36 @@
-# Runbook — Stock reconcile procedure (Phase 3.3)
+# Runbook — Stock reconcile procedure
 
-Сверка остатков Odoo vs Saleor и закрытие дрейфа. См. ADR-0018 (и ADR-0016 по
-формуле). Дополняет [stock-sync.md](stock-sync.md).
+Reconciling Odoo vs Saleor stock levels and closing drift. See ADR-0018 (and
+ADR-0016 for the formula). Complements [stock-sync.md](stock-sync.md).
 
-## Что такое дрейф
+## What drift means
 
-Для каждой пары (variant, warehouse):
+For each (variant, warehouse) pair:
 
 ```
 expected = MAX(odoo_raw - BRIDGE_STOCK_SAFETY_BUFFER, 0)     # ADR-0016
 drift    = saleor_qty != expected
 ```
 
-Расхождение **ровно на `buffer`** (например Odoo=12, Saleor=11 при buffer=1) — это
-**норма**, НЕ дрейф (это и есть эффект safety buffer). Дрейф — когда Saleor
-отличается от `expected` (потерянный event, ручная правка в Saleor, баг).
+A discrepancy of **exactly `buffer`** (e.g. Odoo=12, Saleor=11 with buffer=1)
+is **expected**, NOT drift (it's just the safety buffer at work). Drift means
+Saleor differs from `expected` (a lost event, a manual edit in Saleor, a bug).
 
-## Когда запускать
+## When to run it
 
-- **Автоматически:** arq cron каждый день в **02:00 UTC**, всегда **dry-run** —
-  только лог `event=stock_reconcile_drift count=N` (ADR-0018). Ничего не правит.
-- **Вручную:** после инцидента (worker/Redis/Odoo лежали), после массовых правок
-  остатков, при подозрении на расхождение витрины.
+- **Automatically:** an arq cron job every day at **02:00 UTC**, always
+  **dry-run** — it only logs `event=stock_reconcile_drift count=N` (ADR-0018).
+  It doesn't fix anything.
+- **Manually:** after an incident (worker/Redis/Odoo was down), after bulk
+  stock edits, or when you suspect the storefront is off.
 
-## Dry-run (по умолчанию)
+## Dry run (default)
 
 ```bash
 docker compose exec middleware python -m saleor_bridge.cli.bulk_seed reconcile-stocks
 ```
 
-Печатает таблицу и сводку. **Exit 0** — чисто, **exit 1** — есть дрейф.
+Prints a table and a summary. **Exit 0** = clean, **exit 1** = drift found.
 
 ```
         Stock reconcile (dry-run)
@@ -39,41 +40,43 @@ docker compose exec middleware python -m saleor_bridge.cli.bulk_seed reconcile-s
 checked=30 ok=29 drift=1 fixed=0
 ```
 
-- `Odoo` — сырой агрегат (`odoo_raw`).
-- `Saleor` — текущий остаток в Saleor (сумма по складам).
-- `Diff` = `Saleor - Odoo` (при норме = `-buffer`).
-- `Status` — `(buffer — OK)` или `❌ DRIFT`.
+- `Odoo` — the raw aggregate (`odoo_raw`).
+- `Saleor` — the current stock level in Saleor (summed across warehouses).
+- `Diff` = `Saleor - Odoo` (`-buffer` when expected).
+- `Status` — `(buffer — OK)` or `❌ DRIFT`.
 
-## Apply (правка дрейфа)
+## Apply (fix drift)
 
-Сначала посмотри dry-run, убедись что дрейф реальный (а не ожидаемый buffer-зазор).
-Затем:
+First look at the dry run and confirm the drift is real (not just the
+expected buffer gap). Then:
 
 ```bash
 docker compose exec middleware python -m saleor_bridge.cli.bulk_seed reconcile-stocks --apply
 ```
 
-Для каждого дрейфного SKU выставляет `trackInventory=True` и пушит `expected`
-(`MAX(odoo_raw - buffer, 0)`). **Exit 0** если все правки прошли, **exit 1** при
-ошибке хотя бы одной. После `--apply` повтори dry-run — должно быть `drift=0`.
+For each drifted SKU, sets `trackInventory=True` and pushes `expected`
+(`MAX(odoo_raw - buffer, 0)`). **Exit 0** if every fix succeeded, **exit 1**
+if at least one failed. After `--apply`, re-run the dry run — it should show
+`drift=0`.
 
-## Проверка работы cron
+## Checking the cron job
 
 ```bash
-# логи worker за ночь:
+# worker logs from overnight:
 docker compose logs middleware-worker | grep stock_reconcile_drift
-# ручной прогон cron-таски (через arq) для проверки:
+# manual run of the cron task (via arq) to test it:
 docker compose exec middleware python -m saleor_bridge.cli.bulk_seed reconcile-stocks
 ```
 
-> **Часовой пояс:** cron берёт время контейнера (UTC по умолчанию для python-образа).
-> Если контейнеру задан другой TZ — поправь час в `cron(... hour=2 ...)`
-> (`queue/arq_worker.py`) или выставь `TZ=UTC`.
+> **Timezone:** the cron uses the container's clock (UTC by default for the
+> python image). If the container has a different TZ set, adjust the hour in
+> `cron(... hour=2 ...)` (`queue/arq_worker.py`), or set `TZ=UTC`.
 
-## Эскалация
+## Escalation
 
-- Дрейф на МНОГИХ SKU сразу → вероятно системная проблема (warehouse↔channel,
-  buffer mismatch, потеря всей пачки events). НЕ делай `--apply` вслепую — сначала
-  разберись в причине.
-- `quantityAvailable=0` при `stocks.quantity>0` → warehouse не в shipping zone
-  канала (ADR-0015). `--apply` это не починит — нужна привязка warehouse к каналу.
+- Drift on MANY SKUs at once → likely a systemic issue (warehouse↔channel,
+  buffer mismatch, a whole batch of events lost). Don't run `--apply` blindly
+  — investigate the cause first.
+- `quantityAvailable=0` while `stocks.quantity>0` → the warehouse isn't in
+  the channel's shipping zone (ADR-0015). `--apply` won't fix this — the
+  warehouse needs to be attached to the channel.

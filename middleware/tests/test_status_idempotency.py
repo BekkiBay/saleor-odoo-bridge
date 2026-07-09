@@ -1,4 +1,4 @@
-"""Idempotency: pre-check статуса → пропуск мутации если уже в целевом состоянии."""
+"""Idempotency: pre-check status → skip the mutation if already in the target state."""
 
 from __future__ import annotations
 

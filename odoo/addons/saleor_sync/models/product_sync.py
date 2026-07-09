@@ -1,14 +1,16 @@
-"""Outbound dispatch Odoo → middleware (Phase 3.2, reverse flow).
+"""Outbound dispatch Odoo → middleware (reverse flow).
 
-base.automation (on_create_or_write) → серверный action `state='code'` зовёт
-`records._saleor_dispatch()`. Этот метод:
-  1. уважает context `saleor_sync_skip` (guard от эхо при будущем inbound product-sync);
-  2. пишет saleor.outbox (observability);
-  3. POST'ит в middleware /api/odoo-events?secret=... (ADR-0011);
-  4. обновляет outbox state по ответу.
+base.automation (on_create_or_write) calls a server action with `state='code'`,
+which invokes `records._saleor_dispatch()`. This method:
+  1. respects the `saleor_sync_skip` context (guard against echo for inbound
+     product-sync);
+  2. writes a saleor.outbox record (observability);
+  3. POSTs to the middleware at /api/odoo-events?secret=... (ADR-0011);
+  4. updates the outbox state based on the response.
 
-POST синхронный, но короткий (middleware кладёт job в arq и сразу 200). На сбой
-middleware НЕ роняем транзакцию Odoo — лишь помечаем outbox failed.
+The POST is synchronous but short (the middleware queues the job in arq and
+returns 200 immediately). On middleware failure we do NOT fail the Odoo
+transaction — we only mark the outbox record as failed.
 """
 
 import json
@@ -21,7 +23,7 @@ from odoo import models
 
 _logger = logging.getLogger(__name__)
 
-_TIMEOUT = 2  # сек; middleware обязан ответить <1s (вся работа — в arq)
+_TIMEOUT = 2  # seconds; the middleware must respond in <1s (all work happens in arq)
 
 
 def _config(env):
@@ -40,9 +42,10 @@ def _config(env):
 
 
 def _emit(env, model_name, odoo_id, action):
-    """Один outbound-event: запись в saleor.outbox + POST в middleware.
+    """One outbound event: writes a saleor.outbox record + POSTs to the middleware.
 
-    На сбой middleware НЕ роняем транзакцию Odoo — лишь помечаем outbox failed.
+    On middleware failure we do NOT fail the Odoo transaction — we only mark
+    the outbox record as failed.
     """
     url, secret = _config(env)
     endpoint = f"{url}/api/odoo-events"
@@ -63,7 +66,7 @@ def _emit(env, model_name, odoo_id, action):
         else:
             outbox.state = "failed"
             outbox.error_message = resp.text[:2000]
-    except Exception as exc:  # noqa: BLE001 — не роняем write пользователя
+    except Exception as exc:  # noqa: BLE001 — must not fail the user's write
         outbox.state = "failed"
         outbox.error_message = str(exc)[:2000]
         _logger.warning("saleor dispatch failed for %s#%s: %s", model_name, odoo_id, exc)
@@ -82,10 +85,11 @@ def _dispatch(records, model_name):
 
 
 def _dispatch_stock(records):
-    """stock.quant write → событие per product.product (Phase 3.3, ADR-0017).
+    """stock.quant write → one event per product.product (ADR-0017).
 
-    Subject = product.product (не сам quant): middleware перечитывает агрегат
-    остатка. Дедупим по товару — один write может затронуть несколько quant'ов.
+    Subject = product.product (not the quant itself): the middleware
+    re-reads the aggregate stock level. Deduplicated by product — a single
+    write can touch several quants.
     """
     if records.env.context.get("saleor_sync_skip"):
         return
@@ -99,11 +103,12 @@ def _dispatch_stock(records):
 
 
 def _dispatch_ptav(records):
-    """PTAV.price_extra изменился → событие product.template родителя (Phase 3.5).
+    """PTAV.price_extra changed → event for the parent product.template.
 
-    Subject = шаблон (не PTAV): middleware реконсилит цены всех вариантов шаблона
-    (lst_price пересчитан = list_price + price_extra). Дедупим по шаблону — один
-    write может затронуть несколько PTAV.
+    Subject = template (not the PTAV): the middleware reconciles prices for
+    all variants of the template (lst_price recomputed = list_price +
+    price_extra). Deduplicated by template — a single write can touch
+    several PTAVs.
     """
     if records.env.context.get("saleor_sync_skip"):
         return
@@ -114,7 +119,8 @@ def _dispatch_ptav(records):
         if not tmpl or tmpl.id in seen:
             continue
         seen.add(tmpl.id)
-        # Эмитим только для синканных шаблонов (есть binding) — ручные PTAV не пушим.
+        # Only emit for synced templates (i.e. with a binding) — unsynced
+        # (manually created) PTAVs are not pushed.
         if Binding.search_count([("model_name", "=", "product.template"), ("odoo_id", "=", tmpl.id)]):
             _emit(records.env, "product.template", tmpl.id, "write")
 
@@ -126,10 +132,11 @@ def _has_order_binding(env, order_id):
 
 
 def _dispatch_order_state(records):
-    """sale.order.state change → событие (Phase 3.4, ADR-0019).
+    """sale.order.state change → event (ADR-0019).
 
-    Только для значимых состояний и заказов, синканных из Saleor (есть binding) —
-    чтобы не пушить вручную созданные в Odoo заказы. skip-guard (ADR-0020) рвёт эхо.
+    Only for meaningful states and for orders synced from Saleor (i.e. with
+    a binding) — so we don't push orders created manually in Odoo. The
+    skip-guard (ADR-0020) breaks the echo loop.
     """
     if records.env.context.get("saleor_sync_skip"):
         return
@@ -142,7 +149,7 @@ def _dispatch_order_state(records):
 
 
 def _dispatch_picking_shipped(records):
-    """stock.picking → done → fulfillment event (Phase 3.4, ADR-0019/0021)."""
+    """stock.picking → done → fulfillment event (ADR-0019/0021)."""
     if records.env.context.get("saleor_sync_skip"):
         return
     for pick in records:
@@ -157,7 +164,7 @@ class ProductTemplate(models.Model):
     _inherit = "product.template"
 
     def with_saleor_skip(self):
-        """Контекст-менеджер: следующий write не триггерит outbound webhook."""
+        """Context manager: the next write will not trigger an outbound webhook."""
         return self.with_context(saleor_sync_skip=True)
 
     def _saleor_dispatch(self):
@@ -198,7 +205,7 @@ class StockPicking(models.Model):
         _dispatch_picking_shipped(self)
 
 
-# ── Phase 3.5: variants & attributes ──────────────────────────────────────
+# ── Variants & attributes ──────────────────────────────────────────────────
 
 class ProductAttribute(models.Model):
     _inherit = "product.attribute"

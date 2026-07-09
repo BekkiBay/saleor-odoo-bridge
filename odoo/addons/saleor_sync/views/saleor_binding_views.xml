@@ -83,8 +83,8 @@
                 Saleor↔Odoo external ID mapping table.
             </p>
             <p>
-                Записи появляются автоматически по мере синки между системами (Phase 3.1+).
-                Здесь видны mapping pairs и их статус.
+                Records are created automatically as records are synced between the
+                two systems. Here you can see the mapping pairs and their status.
             </p>
         </field>
     </record>

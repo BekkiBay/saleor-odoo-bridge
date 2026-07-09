@@ -1,4 +1,4 @@
-"""Slack alert sender (ADR-0008). No-op если webhook URL пуст."""
+"""Slack alert sender (ADR-0008). No-op if the webhook URL is empty."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Settings — все через env vars с префиксом BRIDGE_."""
+"""Settings — all via env vars prefixed with BRIDGE_."""
 
 from __future__ import annotations
 
@@ -9,54 +9,81 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """Конфиг middleware. Все поля — через env vars BRIDGE_*."""
+    """Middleware config. Every field is set through a BRIDGE_* env var."""
 
     # ── Saleor ────────────────────────────────────────────────────────────
     saleor_api_url: str = Field(
         default="http://localhost:8000/graphql/",
         description="Saleor GraphQL endpoint.",
     )
-    saleor_app_id: str = Field(default="", description="App ID после appInstall (опционально).")
-    saleor_app_token: str = Field(default="", description="App bearer token после регистрации.")
+    saleor_app_id: str = Field(default="", description="App ID after appInstall (optional).")
+    saleor_app_token: str = Field(default="", description="App bearer token after registration.")
     saleor_default_channel: str = Field(
         default="default-channel",
-        description="Channel slug для MVP (см. ADR-0004).",
+        description="The single channel slug this bridge operates on (see ADR-0004).",
     )
     saleor_product_type_name: str = Field(
         default="Generic",
-        description="Имя единственного ProductType для каталога (ADR-0012).",
+        description="Name of the single ProductType used for the catalog (see ADR-0012).",
+    )
+
+    # ── App identity (served by GET /api/manifest) ────────────────────────
+    app_id: str = Field(default="saleor-odoo-bridge", description="Saleor App id in the manifest.")
+    app_name: str = Field(default="Saleor Odoo Sync", description="App name shown in Saleor.")
+    app_about: str = Field(
+        default="Bidirectional sync between an Odoo back-office and a Saleor storefront.",
+        description="App description shown on the Saleor install screen.",
+    )
+    app_homepage_url: str = Field(
+        default="https://github.com/BekkiBay/saleor-odoo-bridge",
+        description="Homepage URL advertised in the manifest.",
+    )
+    app_support_url: str = Field(
+        default="https://github.com/BekkiBay/saleor-odoo-bridge/issues",
+        description="Support URL advertised in the manifest.",
+    )
+    app_author: str = Field(
+        default="saleor-odoo-bridge contributors",
+        description="Author advertised in the manifest.",
     )
 
     # ── Odoo ──────────────────────────────────────────────────────────────
     odoo_url: str = "http://odoo:8069"
-    odoo_db: str = "marketplace"
+    odoo_db: str = "odoo"
     odoo_api_key: str = Field(default="", description="Odoo API key (Preferences → Account Security).")
     odoo_webhook_secret: str = Field(
         default="",
-        description="Shared secret для входящих Odoo→middleware webhooks (ADR-0011). "
-        "MUST быть задан в prod; пустой (или legacy 'changeme-please') → /api/odoo-events "
-        "возвращает 503 и не доверяет публично-известному секрету.",
+        description="Shared secret for inbound Odoo→middleware webhooks (see ADR-0011). "
+        "MUST be set in production; an empty value (or the legacy 'changeme-please') makes "
+        "/api/odoo-events return 503 rather than trust a publicly known secret.",
     )
     odoo_shipping_sku: str = Field(default="SHIPPING", description="default_code of the Odoo shipping service product.")
-    order_total_tolerance: int = Field(default=1, description="Max |Odoo-Saleor| order total diff before 'diverged' (UZS).")
+    order_total_tolerance: int = Field(
+        default=1,
+        description="Max |Odoo-Saleor| order total difference, in minor units of the channel "
+        "currency, before the order is flagged as 'diverged'.",
+    )
 
     # ── Middleware self ───────────────────────────────────────────────────
     middleware_public_url: str = Field(
         default="http://localhost:8080",
-        description="Публичный URL для Saleor webhooks (ngrok/Cloudflare Tunnel).",
+        description="Public URL that Saleor posts webhooks to (ngrok / Cloudflare Tunnel).",
     )
     log_level: str = "INFO"
 
     # ── Redis ─────────────────────────────────────────────────────────────
     redis_url: str = "redis://redis:6379/0"
 
-    # ── Stock consistency (Phase 3.3) ─────────────────────────────────────
+    # ── Stock consistency (see ADR-0010, ADR-0016) ────────────────────────
     stock_safety_buffer: int = 1
-    stock_reconcile_interval: int = 300
 
-    # ── Ops alerts (Phase 3.1+) ───────────────────────────────────────────
+    # ── Ops alerts (see ADR-0008); all optional, empty disables the channel ─
     slack_webhook_url: str = ""
     ops_email: str = ""
+    alert_from_email: str = Field(
+        default="saleor-bridge@localhost",
+        description="From: address used for ops alert emails.",
+    )
     smtp_host: str = ""
     smtp_port: int = 25
     smtp_user: str = ""
@@ -72,5 +99,5 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    """FastAPI Dependency-friendly accessor. Lru-cached — читается один раз."""
+    """FastAPI Dependency-friendly accessor. lru-cached — read once."""
     return Settings()

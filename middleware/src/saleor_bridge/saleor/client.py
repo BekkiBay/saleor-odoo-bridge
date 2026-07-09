@@ -1,7 +1,7 @@
-"""Saleor GraphQL client — тонкая обёртка над httpx.
+"""Saleor GraphQL client — a thin wrapper around httpx.
 
-В Phase 3.0 используется только для smoke health-check. Реальные queries —
-в Phase 3.1+.
+This is the core GraphQL client used for all Saleor queries and mutations,
+including multipart file uploads.
 """
 
 from __future__ import annotations
@@ -77,6 +77,6 @@ class SaleorClient:
             return body
 
     async def shop_version(self) -> str | None:
-        """Public field schemaVersion — не требует auth."""
+        """Public field schemaVersion — does not require auth."""
         body = await self.execute("query { shop { schemaVersion } }")
         return body.get("data", {}).get("shop", {}).get("schemaVersion")

@@ -1,46 +1,52 @@
-# ADR-0026: Per-variant per-channel pricing (price_extra propagation)
+# ADR-0026: Per-variant, per-channel pricing (price_extra propagation)
 
 ## Status
-Accepted (2026-05-23) — Phase 3.5.
+Accepted (2026-05-23)
 
 ## Context
 
-В Odoo цена варианта = `template.list_price` + сумма `price_extra` по PTAV
-(product.template.attribute.value), которые относятся к варианту. Готовое значение
-лежит в `product.product.lst_price`. В Saleor цена живёт в
-`ProductVariantChannelListing` per (variant, channel) (ADR-0004: один канал MVP).
+In Odoo, a variant's price = `template.list_price` + the sum of the `price_extra`
+values from the PTAVs (product.template.attribute.value) that apply to that
+variant. The computed result lives in `product.product.lst_price`. In Saleor, price
+lives in `ProductVariantChannelListing` per (variant, channel) (per ADR-0004, a
+single channel for the MVP).
 
-Проблема триггера: `lst_price` на `product.product` — **non-stored compute** (это
-подтверждено интроспекцией). base.automation не может триггерить на non-stored
-поле. Значит «изменение цены варианта» нельзя поймать напрямую на варианте.
+The trigger problem: `lst_price` on `product.product` is a **non-stored compute**
+field (confirmed by introspection). `base.automation` can't trigger on a non-stored
+field. So a variant price change can't be caught directly on the variant.
 
 ## Decision
 
-- **Источник цены варианта = `lst_price`** (читаем готовое; не суммируем
-  price_extra сами). `domain.Variant.price = product.product.lst_price`.
-- **Push в `ProductVariantChannelListing`** через `productVariantChannelListingUpdate`
-  (single update) либо inline `channelListings` в `productVariantBulkCreate`.
-- **Триггеры цены — на источниках, не на lst_price:**
-  - `product.template` write (включая `list_price`) → template-handler реконсилит
-    цены всех вариантов;
-  - `product.template.attribute.value.price_extra` (stored!) → эмитим событие
-    `product.template` родителя → та же реконсиляция.
-- Worker читает свежий `lst_price` из Odoo (после commit, 3s defer) — он уже
-  пересчитан = `list_price + price_extra`.
+- **The source for a variant's price is `lst_price`** (we read the already-computed
+  value; we don't sum `price_extra` ourselves).
+  `domain.Variant.price = product.product.lst_price`.
+- **Push to `ProductVariantChannelListing`** via `productVariantChannelListingUpdate`
+  (single update) or inline `channelListings` in `productVariantBulkCreate`.
+- **Price triggers live on the sources, not on `lst_price`:**
+  - a `product.template` write (including `list_price`) → the template handler
+    reconciles the prices of all its variants;
+  - `product.template.attribute.value.price_extra` (which is stored!) → we emit an
+    event for the parent `product.template` → the same reconciliation runs.
+- The worker reads a fresh `lst_price` from Odoo (after commit, with a 3s defer) —
+  by then it's already recomputed as `list_price + price_extra`.
 
 ## Alternatives considered
 
-- **Триггер на `product.product.lst_price`.** Невозможно: поле non-stored compute.
-- **Суммировать `list_price + price_extra` в middleware.** Дублирует логику Odoo,
-  риск расхождения при сложных pricelist-правилах. `lst_price` — single source of truth.
-- **Триггер на `product.product` для цены.** Не сработает: запись price_extra на
-  PTAV не пишет в product.product.
+- **Trigger on `product.product.lst_price`.** Not possible: the field is a
+  non-stored compute.
+- **Sum `list_price + price_extra` in the middleware.** Duplicates Odoo's logic,
+  with a risk of drift under complex pricelist rules. `lst_price` is the single
+  source of truth.
+- **Trigger on `product.product` for price changes.** Wouldn't fire: writing
+  `price_extra` on a PTAV doesn't write to `product.product`.
 
 ## Consequences
 
-**Pros:** цена всегда консистентна с Odoo (читаем lst_price); оба пути изменения
-(list_price и price_extra) покрыты; reconcile переустанавливает цены идемпотентно.
+**Pros:** price is always consistent with Odoo (we read `lst_price`); both change
+paths (list_price and price_extra) are covered; reconcile re-applies prices
+idempotently.
 
-**Cons:** правка одного PTAV.price_extra реконсилит ВСЕ варианты шаблона (а не
-только затронутые). Для каталога одежды (3-5 размеров × 2-4 цвета) набор мал —
-overhead незначим. Тонкая адресная адресация — Phase 4 при необходимости.
+**Cons:** editing a single PTAV's `price_extra` reconciles ALL variants of the
+template, not just the affected ones. For a catalog with a small attribute set
+(e.g., a handful of sizes × a handful of colors), this overhead is negligible. More
+targeted, fine-grained reconciliation can be added later if needed.

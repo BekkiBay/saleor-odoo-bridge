@@ -1,7 +1,7 @@
-"""Bulk seed orchestration: весь каталог Odoo → Saleor (ADR-0013).
+"""Bulk seed orchestration: the entire Odoo catalog → Saleor (ADR-0013).
 
-Идемпотентно. Порядок: ProductType → категории (топологически) → продукты.
-Rich-прогресс — в CLI; сюда передаётся опциональный progress callback.
+Idempotent. Order: ProductType → categories (topologically) → products.
+Rich progress lives in the CLI; an optional progress callback is passed in here.
 """
 
 from __future__ import annotations
@@ -32,13 +32,13 @@ ProgressCb = Callable[[str, int, int], None]
 
 
 class CategoryCycle(RuntimeError):
-    """Цикл в дереве категорий (parent_id) — глубже _MAX_DEPTH."""
+    """Cycle in the category tree (parent_id) — deeper than _MAX_DEPTH."""
 
 
 def topological_sort(categories: list[ProductCategory]) -> list[ProductCategory]:
-    """Родители раньше детей. Только в пределах переданного множества.
+    """Parents before children. Only within the given set.
 
-    Бросает CategoryCycle при цикле или глубине > _MAX_DEPTH.
+    Raises CategoryCycle on a cycle or depth > _MAX_DEPTH.
     """
     by_id = {c.external_id: c for c in categories}
     state: dict[str, int] = {}  # 0 = visiting, 1 = done
@@ -67,7 +67,7 @@ def topological_sort(categories: list[ProductCategory]) -> list[ProductCategory]
 async def _collect_catalog_categories(
     odoo: OdooClient, product_category_ids: set[int]
 ) -> list[ProductCategory]:
-    """Все категории, достижимые вверх по parent_id от категорий товаров."""
+    """All categories reachable upward via parent_id from the product categories."""
     all_ids = await odoo.search(_CAT_MODEL, [])
     all_cats = await cat_adapter.list_categories(odoo, all_ids)
     by_id = {c.external_id: c for c in all_cats}
@@ -92,7 +92,7 @@ async def run_bulk_seed(
     dry_run: bool = False,
     progress: ProgressCb | None = None,
 ) -> dict:
-    """Главная точка. Возвращает summary со статистикой."""
+    """Main entry point. Returns a summary with statistics."""
     def _progress(stage: str, cur: int, total: int) -> None:
         if progress:
             progress(stage, cur, total)
@@ -100,7 +100,7 @@ async def run_bulk_seed(
     odoo = OdooClient(url=settings.odoo_url, db=settings.odoo_db, api_key=settings.odoo_api_key)
     binding_repo = BindingRepository(odoo)
 
-    # ── собрать данные из Odoo ──
+    # ── gather data from Odoo ──
     product_ids = await prod_adapter.list_active_product_ids(odoo)
     products = await prod_adapter.list_products(odoo, product_ids)
     product_cat_ids = {int(p.category_external_id) for p in products if p.category_external_id}
@@ -115,7 +115,7 @@ async def run_bulk_seed(
         "errors": [],
     }
 
-    # ── dry-run: только план (read-only binding lookups) ──
+    # ── dry-run: plan only (read-only binding lookups) ──
     if dry_run:
         for c in categories:
             existing = await binding_repo.find_saleor_id(_CAT_MODEL, int(c.external_id))
@@ -134,10 +134,9 @@ async def run_bulk_seed(
     client = await get_saleor_client(settings)
     channel = await resolve_channel(client, settings.saleor_default_channel)
     summary["channel"] = channel
-    if channel["currencyCode"] != "UZS":
-        summary["errors"].append(
-            f"channel currency {channel['currencyCode']} != UZS — цены могут не сойтись"
-        )
+    # Odoo list prices are pushed verbatim; they are assumed to be denominated in
+    # the target channel's currency. No conversion is performed.
+    summary["currency"] = channel["currencyCode"]
     product_type_id = await ensure_product_type(client, binding_repo, settings.saleor_product_type_name)
     summary["product_type"] = product_type_id
 
@@ -176,9 +175,9 @@ async def run_bulk_seed(
 
 
 async def run_retry_failed(settings: Settings) -> dict:
-    """Re-sync всех saleor.binding со state='failed' (outbound product/category).
+    """Re-sync all saleor.binding rows with state='failed' (outbound product/category).
 
-    Inbound-биндинги (res.partner / sale.order) пропускаем — их ретраит свой flow.
+    Inbound bindings (res.partner / sale.order) are skipped — their own flow retries them.
     """
     odoo = OdooClient(url=settings.odoo_url, db=settings.odoo_db, api_key=settings.odoo_api_key)
     binding_repo = BindingRepository(odoo)

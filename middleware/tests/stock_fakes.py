@@ -1,15 +1,15 @@
-"""Минимальный FakeOdoo для unit/integration тестов stock-sync (Phase 3.3).
+"""Minimal FakeOdoo for stock-sync unit/integration tests.
 
-Покрывает методы, которые дёргают stock-адаптеры + BindingRepository:
-read / search_read / search / create / write. Без префикса test_ → pytest не
-коллектит как тест-модуль.
+Covers the methods exercised by the stock adapters + BindingRepository:
+read / search_read / search / create / write. Without a test_ prefix → pytest
+doesn't collect it as a test module.
 """
 
 from __future__ import annotations
 
 
 def domain_val(domain: list, field: str):
-    """Достать value из ('field', '=', value) клаузы домена."""
+    """Extract the value from a ('field', '=', value) domain clause."""
     for clause in domain:
         if isinstance(clause, (list, tuple)) and len(clause) == 3 and clause[0] == field:
             return clause[2]
@@ -47,7 +47,7 @@ class FakeOdoo:
         self.taxes = taxes or {}         # rate(float, percent) -> account.tax id
         self.writes: list[tuple] = []
         self.creates: list[tuple] = []
-        self.calls: list[tuple] = []          # (model, method, kwargs) — для skip-guard теста
+        self.calls: list[tuple] = []          # (model, method, kwargs) — for the skip-guard test
 
     async def read(self, model: str, ids: list[int], fields: list[str]) -> list[dict]:
         if model == "product.product":
@@ -67,7 +67,7 @@ class FakeOdoo:
         raise AssertionError(f"FakeOdoo.read unexpected model {model}")
 
     async def call(self, model: str, method: str, **kwargs):
-        """Записать вызов (для проверки skip-guard context). Возвращает разумный дефолт."""
+        """Record the call (for verifying the skip-guard context). Returns a sensible default."""
         self.calls.append((model, method, kwargs))
         if method == "create":
             return [1]

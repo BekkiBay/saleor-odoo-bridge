@@ -1,12 +1,11 @@
 """Pure canonical-status mapping. NO Odoo imports — standalone-unit-testable.
 
 Single definition of the customer-facing 5-step status. Used by the
-sale.order computed field (Odoo display + Saleor metadata push). See spec
-2026-06-22-unified-order-status-odoo-design.md.
+sale.order computed field (Odoo display + Saleor metadata push).
 """
 from __future__ import annotations
 
-# Selection keys (must match the storefront CANONICAL map, lower-case).
+# Selection keys (must match the storefront's canonical map, lower-case).
 PAID = "paid"
 ASSEMBLING = "assembling"
 SHIPPED = "shipped"
@@ -14,7 +13,7 @@ DELIVERED = "delivered"
 CANCELLED = "cancelled"
 
 
-def compute_justix_status(state, delivered, has_done_picking):
+def compute_fulfillment_status(state, delivered, has_done_picking):
     """Map Odoo state + delivered flag + picking state → canonical status.
 
     Precedence (top-down): cancel > delivered > shipped > assembling > paid.

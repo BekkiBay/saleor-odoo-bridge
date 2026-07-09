@@ -1,4 +1,4 @@
-"""Idempotency guard через Redis SET NX с TTL (ADR / spec: 24h)."""
+"""Idempotency guard via Redis SET NX with a TTL (ADR / spec: 24h)."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ def make_key(event_type: str, saleor_id: str, relevant: dict | None = None) -> s
 
 
 async def already_processed(client: redis.Redis, key: str) -> bool:
-    """SET NX: возвращает True если key уже был (т.е. duplicate)."""
+    """SET NX: returns True if the key already existed (i.e. duplicate)."""
     # set returns True if set (new), None if already exists.
     was_set = await client.set(key, "1", nx=True, ex=_TTL_SECONDS)
     return was_set is None

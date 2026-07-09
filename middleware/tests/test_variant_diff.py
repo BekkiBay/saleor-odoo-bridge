@@ -1,4 +1,4 @@
-"""diff_variants: desired (Odoo) vs current (Saleor) → create/keep/delete (Phase 3.5)."""
+"""diff_variants: desired (Odoo) vs current (Saleor) → create/keep/delete."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ def test_existing_go_to_keep():
 
 
 def test_stale_saleor_variant_deleted():
-    # Миграция S2: dummy "SKU-001" больше не desired → delete (ADR-0025).
+    # Migration S2: dummy "SKU-001" is no longer desired → delete (ADR-0025).
     diff = diff_variants(
         [_v("SKU-001-S"), _v("SKU-001-M")],
         {"SKU-001": "DUMMY", "SKU-001-S": "VS"},
@@ -38,7 +38,7 @@ def test_stale_saleor_variant_deleted():
 
 
 def test_single_variant_adopt_no_delete():
-    # S7: single-variant dummy SKU совпал → keep (adopt), ничего не удаляем.
+    # S7: single-variant dummy SKU matched → keep (adopt), nothing gets deleted.
     diff = diff_variants([_v("SKU-007")], {"SKU-007": "DUMMY7"})
     assert {v.sku for v in diff.keep} == {"SKU-007"}
     assert diff.create == []

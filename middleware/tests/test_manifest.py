@@ -1,7 +1,8 @@
-"""Unit tests для Saleor App Manifest."""
+"""Unit tests for the Saleor App Manifest."""
 
 from __future__ import annotations
 
+from saleor_bridge.config import Settings
 from saleor_bridge.saleor.manifest_schema import AppManifest
 
 
@@ -20,7 +21,7 @@ def test_manifest_trims_trailing_slash():
 
 
 def test_manifest_has_six_webhooks():
-    """Phase 3.1 — 2 customer + 4 order webhooks."""
+    """2 customer + 4 order webhooks."""
     m = AppManifest.build(public_url="https://example.app")
     assert len(m.webhooks) == 6
     events = {ev for w in m.webhooks for ev in w.asyncEvents}
@@ -48,10 +49,30 @@ def test_manifest_serializes_to_dict():
     """Saleor wants JSON object — model_dump should work."""
     m = AppManifest.build(public_url="https://example.app")
     d = m.model_dump(exclude_none=True)
-    assert d["id"] == "uz.justix.saleor-bridge"
+    assert d["id"] == "saleor-odoo-bridge"
     assert "permissions" in d
     assert "webhooks" in d
     assert isinstance(d["webhooks"], list)
+
+
+def test_manifest_identity_comes_from_settings():
+    """A deployment advertises itself via env, without patching the code."""
+    settings = Settings(
+        app_id="com.acme.bridge",
+        app_name="Acme Sync",
+        app_about="Acme's bridge.",
+        app_homepage_url="https://acme.example",
+        app_support_url="mailto:ops@acme.example",
+        app_author="Acme Inc",
+    )
+    m = AppManifest.build(public_url="https://example.app", settings=settings)
+    assert m.id == "com.acme.bridge"
+    assert m.name == "Acme Sync"
+    assert m.homepageUrl == "https://acme.example"
+    assert m.supportUrl == "mailto:ops@acme.example"
+    assert m.author == "Acme Inc"
+    # URLs still derive from the public URL, not from settings.
+    assert m.tokenTargetUrl == "https://example.app/api/register"
 
 
 def test_order_subscription_includes_financial_fields():

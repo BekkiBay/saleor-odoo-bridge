@@ -1,4 +1,4 @@
-"""odoo_record_lock — no-op без redis_url (Phase 3.2 hardening)."""
+"""odoo_record_lock — no-op without a redis_url (hardening)."""
 
 from __future__ import annotations
 
@@ -12,10 +12,10 @@ async def test_lock_noop_without_redis_url():
     ran = False
     async with odoo_record_lock(None, "product.category:1"):
         ran = True
-    assert ran  # тело выполнилось, без redis нет ошибки
+    assert ran  # body executed, no error without redis
 
 
 @pytest.mark.asyncio
 async def test_lock_noop_empty_url():
     async with odoo_record_lock("", "product.template:5"):
-        pass  # не падает
+        pass  # does not raise

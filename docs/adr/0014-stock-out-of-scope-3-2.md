@@ -1,38 +1,44 @@
-# ADR-0014: Stock и warehouses вне scope Phase 3.2 (in scope 3.3)
+# ADR-0014: Stock and warehouses out of scope for catalog sync (covered later by stock sync)
 
 ## Status
-Accepted (2026-05-23) — Phase 3.2
+Accepted (2026-05-23)
 
 ## Context
 
-Saleor допускает создание `Product` + `ProductVariant` **без** stock-записей
-(`Stock` / `Warehouse`). Вариант просто не имеет остатка; при `allowUnpaidOrders`
-и без `trackInventory` он покупаем. Полный stock-sync (остатки, резервирование,
-reconcile-cron, safety buffer) — это ADR-0010 и Phase 3.3.
+Saleor allows creating a `Product` + `ProductVariant` **without** stock records
+(`Stock` / `Warehouse`). Such a variant simply has no stock level; with
+`allowUnpaidOrders` and without `trackInventory` it remains purchasable. Full stock
+sync (stock levels, reservation, the reconcile cron, the safety buffer) is covered
+separately by ADR-0010.
 
 ## Decision
 
-В Phase 3.2 продукты создаются **без stock entries**:
+Products created during catalog sync are created **without stock entries**:
 
-- `ProductVariant.trackInventory = false` — Saleor не блокирует покупку по остатку.
-- Никаких `stockUpdate` / `Warehouse` мутаций.
-- `quantityAvailable` в Saleor для этих вариантов будет 0/непоказателен — это ок для
-  3.2 (цель — товар виден и заказуем в storefront для E2E).
+- `ProductVariant.trackInventory = false` — Saleor doesn't block purchases based on
+  stock level.
+- No `stockUpdate` / `Warehouse` mutations.
+- `quantityAvailable` in Saleor for these variants will be 0/not meaningful — that's
+  fine for catalog sync (the goal here is just for the product to be visible and
+  orderable in the storefront for end-to-end testing).
 
-Остатки появятся в Phase 3.3 (см. ADR-0010): отдельный flow Odoo `stock.quant` →
-Saleor `Stock`, с safety buffer и reconcile-cron.
+Real stock levels are added by the stock-sync work (see ADR-0010): a separate flow
+from Odoo's `stock.quant` to Saleor's `Stock`, with a safety buffer and a reconcile
+cron.
 
 ## Alternatives considered
 
-- **Создавать stock=0 явно.** Отброшено: `trackInventory=false` проще и не делает
-  товар «нет в наличии».
-- **Тянуть stock сразу.** Отброшено: это Phase 3.3, требует warehouse-маппинга и
-  reconcile-логики; раздуло бы 3.2.
+- **Explicitly create stock=0.** Rejected: `trackInventory=false` is simpler and
+  doesn't mark the product as "out of stock."
+- **Pull in stock right away.** Rejected: that requires warehouse mapping and
+  reconcile logic that belongs to the stock-sync work; doing it here would bloat this
+  step unnecessarily.
 
 ## Consequences
 
-**Pros:** проще, меньше мутаций, товар сразу заказуем для E2E-демо.
+**Pros:** simpler, fewer mutations, the product is immediately orderable for an
+end-to-end demo.
 
-**Cons:** до Phase 3.3 в Saleor нет реальных остатков — overselling не контролируется
-на стороне Saleor (Odoo остаётся источником истины по остаткам). Известный временный
-зазор, закрывается в 3.3.
+**Cons:** until stock sync is implemented, Saleor has no real stock levels —
+overselling isn't controlled on the Saleor side (Odoo remains the source of truth for
+stock levels). This is a known, temporary gap, closed once stock sync ships.

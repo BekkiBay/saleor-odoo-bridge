@@ -1,12 +1,12 @@
-"""Saleor ProductVariant мутации (Phase 3.5). Pure GraphQL; binding/резолв — в usecase.
+"""Saleor ProductVariant mutations. Pure GraphQL; binding/resolution lives in the usecase.
 
-Bulk create для генерации набора вариантов (productVariantBulkCreate, цена inline),
-single delete для точечных правок. Attribute input приходит уже зарезолвленным:
+Bulk create generates a set of variants (productVariantBulkCreate, price inline),
+single delete handles targeted edits. Attribute input arrives already resolved:
 [{id: <attrSaleorId>, dropdownValue: {id: <valueSaleorId>}}].
 
-NB: Saleor ProductVariant НЕ имеет поля `barcode` (проверено на 3.23: "Unknown
-field"). Barcode остаётся в Odoo (source of truth), в Saleor не пушим (Phase 4 —
-при необходимости через metadata).
+NB: Saleor ProductVariant does NOT have a `barcode` field (verified on 3.23: "Unknown
+field"). Barcode stays in Odoo (source of truth); we don't push it to Saleor
+(could be added via metadata if ever needed).
 """
 
 from __future__ import annotations
@@ -38,10 +38,10 @@ mutation($id: ID!){
 
 
 def attribute_input(attr_saleor_id: str, value_saleor_id: str) -> dict:
-    """Один элемент variant.attributes для DROPDOWN (ADR-0027).
+    """One element of variant.attributes for DROPDOWN (ADR-0027).
 
-    Форма BulkAttributeValueInput (productVariantBulkCreate): `dropdown`, НЕ
-    `dropdownValue` (последнее — у AttributeValueInput одиночного create).
+    Shape is BulkAttributeValueInput (productVariantBulkCreate): `dropdown`, NOT
+    `dropdownValue` (the latter belongs to AttributeValueInput for single create).
     """
     return {"id": attr_saleor_id, "dropdown": {"id": value_saleor_id}}
 
@@ -49,10 +49,10 @@ def attribute_input(attr_saleor_id: str, value_saleor_id: str) -> dict:
 async def bulk_create_variants(
     client: SaleorClient, *, product_id: str, variants: list[dict]
 ) -> dict[str, str]:
-    """Создать набор вариантов одним вызовом. Возвращает {sku: variant_saleor_id}.
+    """Create a set of variants in a single call. Returns {sku: variant_saleor_id}.
 
-    `variants[i]` = {sku, attributes, channelListings, trackInventory}. Цена/доступность
-    в channelListings inline (без отдельного channel-listing вызова).
+    `variants[i]` = {sku, attributes, channelListings, trackInventory}. Price/availability
+    are inline in channelListings (no separate channel-listing call needed).
     """
     body = await client.execute(_BULK_CREATE, {"product": product_id, "variants": variants})
     if body.get("errors"):
@@ -71,7 +71,7 @@ async def bulk_create_variants(
 
 
 async def delete_variant(client: SaleorClient, variant_id: str) -> None:
-    """Удалить вариант. Идемпотентно: уже удалённый (NOT_FOUND) — не ошибка."""
+    """Delete a variant. Idempotent: already-deleted (NOT_FOUND) is not an error."""
     try:
         await run_mutation(client, _DELETE, {"id": variant_id}, "productVariantDelete")
     except SaleorError as exc:

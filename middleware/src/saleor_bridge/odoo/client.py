@@ -2,7 +2,7 @@
 
 Reference: https://www.odoo.com/documentation/19.0/developer/reference/external_api.html
 
-Endpoint: POST /json/2/<model>/<method> с named kwargs в body.
+Endpoint: POST /json/2/<model>/<method> with named kwargs in the body.
 Auth: Authorization: bearer <api-key>, X-Odoo-Database: <db>.
 """
 
@@ -17,7 +17,7 @@ log = structlog.get_logger()
 
 
 class OdooError(RuntimeError):
-    """Odoo вернул 4xx/5xx (constraint, validation, etc.)."""
+    """Odoo returned 4xx/5xx (constraint, validation, etc.)."""
 
 
 class OdooClient:
@@ -65,7 +65,7 @@ class OdooClient:
         return await self.call(model, "read", ids=ids, fields=fields)
 
     async def create(self, model: str, vals: dict) -> int:
-        """create принимает vals_list в JSON-2. Возвращает первый id."""
+        """create takes vals_list in JSON-2. Returns the first id."""
         res = await self.call(model, "create", vals_list=[vals])
         return res[0] if isinstance(res, list) else res
 
@@ -73,7 +73,7 @@ class OdooClient:
         return await self.call(model, "write", ids=ids, vals=vals)
 
     async def version(self) -> dict:
-        """GET /web/version — public, без auth. Health-check."""
+        """GET /web/version — public, no auth required. Health-check."""
         async with httpx.AsyncClient(timeout=5.0) as client:
             r = await client.get(f"{self.url}/web/version")
             r.raise_for_status()

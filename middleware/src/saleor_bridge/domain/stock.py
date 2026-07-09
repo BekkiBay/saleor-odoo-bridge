@@ -1,8 +1,8 @@
 """Stock domain model (Odoo stock.quant → Saleor Stock per warehouse).
 
-Phase 3.3: агрегируем internal-quant'ы товара в одно число на склад (ADR-0015),
-применяем safety buffer на выходе (ADR-0016). Safety buffer + negative-clamp —
-единственная точка трансформации перед push в Saleor.
+We aggregate the product's internal quants into a single number per warehouse
+(ADR-0015), and apply a safety buffer on the way out (ADR-0016). Safety buffer
++ negative-clamp is the single transformation point before pushing to Saleor.
 """
 
 from __future__ import annotations
@@ -13,15 +13,15 @@ from pydantic import BaseModel
 class Warehouse(BaseModel):
     external_id: str  # Odoo stock.warehouse id (as string)
     name: str
-    slug: str  # уникальный slug для Saleor: f"{code}-{external_id}" (ADR-0015)
+    slug: str  # unique slug for Saleor: f"{code}-{external_id}" (ADR-0015)
 
 
 class StockLevel(BaseModel):
-    """Агрегированный остаток варианта на одном складе.
+    """Aggregated stock level for a variant at a single warehouse.
 
-    `raw_quantity` — сырой агрегат из Odoo (может быть отрицательным).
-    `available_quantity` (== `display_quantity`) — то, что пушим в Saleor:
-    `MAX(raw - safety_buffer, 0)` (ADR-0016). MAX(..,0) заодно clamp'ит negative.
+    `raw_quantity` — the raw aggregate from Odoo (can be negative).
+    `available_quantity` (== `display_quantity`) — what we push to Saleor:
+    `MAX(raw - safety_buffer, 0)` (ADR-0016). MAX(..,0) also clamps negative values.
     """
 
     variant_sku: str
@@ -35,5 +35,5 @@ class StockLevel(BaseModel):
 
     @property
     def display_quantity(self) -> int:
-        """То, что пушим в Saleor (alias available_quantity)."""
+        """What we push to Saleor (alias available_quantity)."""
         return self.available_quantity

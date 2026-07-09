@@ -1,11 +1,11 @@
-"""Webhook receiver endpoints (Phase 3.1).
+"""Webhook receiver endpoints.
 
 Flow per ADR / spec:
 1. JWS verify (<50ms).
 2. Idempotency check (Redis SET NX, 24h TTL).
 3. Enqueue arq job.
 4. Return 200 (<200ms total).
-Никакой бизнес-логики inline — всё в arq worker.
+No business logic inline — it all happens in the arq worker.
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ async def _verify(raw_body: bytes, sig: str | None, api_url: str) -> tuple[bool,
 
 
 def _extract_saleor_id(payload: dict) -> str:
-    """Best-effort вытащить saleor id для idempotency key."""
+    """Best-effort extraction of the saleor id for the idempotency key."""
     data = payload.get("event", payload)
     for k in ("order", "user"):
         if isinstance(data.get(k), dict) and data[k].get("id"):
@@ -70,10 +70,10 @@ async def _handle(
 
     raw = await request.body()
 
-    # JWKS тянем со сконфигуренного Saleor URL (settings.saleor_api_url), а НЕ с
-    # saleor-api-url из заголовка вебхука: (1) header может быть недостижим из
-    # контейнера (Saleor анонсит localhost), (2) доверять источник ключей подписи
-    # значению из запроса — небезопасно. В single-tenant prod это тот же URL.
+    # We fetch JWKS from the configured Saleor URL (settings.saleor_api_url), NOT from
+    # the saleor-api-url in the webhook header: (1) the header may be unreachable from
+    # the container (Saleor announces localhost), (2) trusting the signing-key source
+    # from the request itself is unsafe. In single-tenant prod it's the same URL anyway.
     valid, info = await _verify(raw, saleor_signature, settings.saleor_api_url)
     if not valid:
         log.warning("webhook_signature_invalid", reason=info, domain=saleor_domain)
@@ -172,9 +172,9 @@ async def order_confirmed(
     saleor_api_url: str | None = Header(None, alias="saleor-api-url"),
     saleor_domain: str | None = Header(None, alias="saleor-domain"),
 ) -> dict:
-    # ADR-0005: ORDER_CONFIRMED → бизнес-логики НЕТ (ждём PAID). Но JWS-верификацию
-    # обязаны прогнать, как и на остальных webhook'ах — иначе любой неаутентифицированный
-    # вызов получит 200 и обойдёт auth-gate. Verify → noop (без enqueue).
+    # ADR-0005: ORDER_CONFIRMED → NO business logic (we wait for PAID). But JWS
+    # verification still has to run, same as on the other webhooks — otherwise any
+    # unauthenticated call gets 200 and bypasses the auth gate. Verify → noop (no enqueue).
     settings = get_settings()
     raw = await request.body()
     valid, info = await _verify(raw, saleor_signature, settings.saleor_api_url)

@@ -12,8 +12,8 @@ from saleor_bridge.domain.enums import OrderStatus
 
 
 class OrderLine(BaseModel):
-    sku: str                 # natural key для product lookup (ADR-0007)
-    product_name: str        # для логов / fallback name
+    sku: str                 # natural key for product lookup (ADR-0007)
+    product_name: str        # for logs / fallback name
     quantity: int
     unit_price: Decimal
     currency: str            # ISO 4217
@@ -28,7 +28,7 @@ class Order(BaseModel):
     external_id: str              # Saleor Order.id
     external_number: str          # Saleor Order.number (human-readable)
     # Plain str, not EmailStr: phone-login shoppers carry a synthetic identity
-    # email (e.g. "998…@phone.justix.local"). ".local" is a reserved TLD that
+    # email (e.g. "998…@phone.example.local"). ".local" is a reserved TLD that
     # email-validator rejects, which would drop the whole order sync. Saleor has
     # already validated the address on registration; Odoo's partner.email is a
     # free-text field, so strict re-validation here only causes false rejects.
@@ -38,7 +38,7 @@ class Order(BaseModel):
     billing_address: Address | None = None
     shipping_address: Address | None = None
     total: Decimal = Decimal("0")
-    currency: str = "UZS"
+    currency: str = ""
     status: OrderStatus = OrderStatus.DRAFT
     created_at: datetime | None = None
     metadata: dict[str, str] = {}
@@ -53,5 +53,5 @@ class Order(BaseModel):
 
     @property
     def client_order_ref(self) -> str:
-        """Idempotency key для sale.order (ADR-0005/0007)."""
+        """Idempotency key for sale.order (ADR-0005/0007)."""
         return f"saleor-{self.external_number}"

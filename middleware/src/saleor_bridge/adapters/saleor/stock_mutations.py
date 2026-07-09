@@ -1,10 +1,10 @@
-"""Saleor Warehouse + Stock мутации (Phase 3.3). Pure GraphQL; binding — в usecase.
+"""Saleor Warehouse + Stock mutations. Pure GraphQL; binding lives in the usecase.
 
-- ensure_warehouse: get-or-create, переиспользует существующий Saleor warehouse,
-  привязанный к каналу (ADR-0015), чтобы остаток попадал в quantityAvailable.
-- update_variant_stock: productVariantStocksUpdate (upsert остатка per warehouse).
-- set_track_inventory: flip trackInventory=True (Phase 3.2 ставил False, ADR-0014;
-  для «нет в наличии» при qty=0 нужно True, ADR-0010).
+- ensure_warehouse: get-or-create, reuses an existing Saleor warehouse bound
+  to the channel (ADR-0015) so stock lands in quantityAvailable.
+- update_variant_stock: productVariantStocksUpdate (upsert of stock per warehouse).
+- set_track_inventory: flip trackInventory=True (previously left False, ADR-0014;
+  "out of stock" at qty=0 requires True, ADR-0010).
 """
 
 from __future__ import annotations
@@ -73,9 +73,9 @@ query($after: String){
 async def ensure_warehouse(
     client: SaleorClient, binding_repo: BindingRepository, warehouse: Warehouse
 ) -> str:
-    """Вернуть Saleor warehouse id для Odoo-склада. Get-or-create (ADR-0015).
+    """Return the Saleor warehouse id for an Odoo warehouse. Get-or-create (ADR-0015).
 
-    Приоритет: binding → существующий Saleor warehouse (привязан к каналу) → create.
+    Priority: binding → existing Saleor warehouse (bound to the channel) → create.
     """
     odoo_id = int(warehouse.external_id)
     bound = await binding_repo.find_saleor_id(_WH_MODEL, odoo_id)
@@ -85,8 +85,8 @@ async def ensure_warehouse(
     data = await query_data(client, _LIST_WAREHOUSES)
     edges = data.get("warehouses", {}).get("edges", [])
     if edges:
-        # Переиспользуем существующий (дефолтный) warehouse — он уже в shipping
-        # zone канала, значит остаток сразу попадёт в quantityAvailable.
+        # Reuse the existing (default) warehouse — it's already in the channel's
+        # shipping zone, so stock will land in quantityAvailable right away.
         saleor_id = edges[0]["node"]["id"]
         await binding_repo.upsert_out(_WH_MODEL, saleor_id, odoo_id, state="synced")
         log.info("warehouse_bound_existing", odoo_id=odoo_id, saleor_id=saleor_id,
@@ -101,7 +101,7 @@ async def ensure_warehouse(
     saleor_id = payload["warehouse"]["id"]
     await binding_repo.upsert_out(_WH_MODEL, saleor_id, odoo_id, state="synced")
     log.warning("warehouse_created_new", odoo_id=odoo_id, saleor_id=saleor_id, slug=warehouse.slug,
-                note="новый warehouse не привязан к shipping zone канала — проверь quantityAvailable")
+                note="new warehouse is not bound to the channel's shipping zone — check quantityAvailable")
     return saleor_id
 
 
@@ -116,7 +116,7 @@ async def set_track_inventory(client: SaleorClient, variant_id: str, *, track: b
 async def update_variant_stock(
     client: SaleorClient, *, variant_id: str, warehouse_id: str, quantity: int
 ) -> None:
-    """productVariantStocksUpdate — upsert остатка на складе (создаёт/обновляет Stock)."""
+    """productVariantStocksUpdate — upsert of the warehouse stock (creates/updates Stock)."""
     await run_mutation(
         client, _STOCKS_UPDATE,
         {"variantId": variant_id, "stocks": [{"warehouse": warehouse_id, "quantity": quantity}]},
@@ -125,15 +125,15 @@ async def update_variant_stock(
 
 
 async def fetch_variant_stock(client: SaleorClient, variant_id: str) -> dict | None:
-    """Текущее состояние варианта: sku, trackInventory, stocks[]."""
+    """Current state of the variant: sku, trackInventory, stocks[]."""
     data = await query_data(client, _VARIANT_STOCK, {"id": variant_id})
     return data.get("productVariant")
 
 
 async def list_variant_stocks(client: SaleorClient) -> dict[str, dict]:
-    """Все варианты Saleor → {sku: {variant_id, total, track}} (для reconcile).
+    """All Saleor variants → {sku: {variant_id, total, track}} (for reconcile).
 
-    `total` = сумма по складам (single-warehouse MVP, ADR-0015 → один Stock).
+    `total` = sum across warehouses (single-warehouse MVP, ADR-0015 → one Stock).
     """
     out: dict[str, dict] = {}
     after = None

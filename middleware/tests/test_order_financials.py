@@ -30,7 +30,7 @@ def _clear_tax_cache():
 RICH_PAYLOAD = {
     "id": "T3JkZXI6OQ==", "number": "2001", "userEmail": "p0@example.com",
     "lines": [{
-        "productName": "Куртка", "variantName": "L", "productSku": "SKU-9",
+        "productName": "Jacket", "variantName": "L", "productSku": "SKU-9",
         "quantity": 2,
         "unitPrice": {"net": {"amount": "100000"}, "gross": {"amount": "112000"}, "tax": {"amount": "12000"}},
         "undiscountedUnitPrice": {"gross": {"amount": "130000"}},
@@ -40,7 +40,7 @@ RICH_PAYLOAD = {
         "variant": {"id": "v9", "sku": "SKU-9"},
     }],
     "shippingPrice": {"net": {"amount": "20000"}, "gross": {"amount": "22400"}, "tax": {"amount": "2400"}},
-    "shippingMethodName": "Курьер",
+    "shippingMethodName": "Courier",
     "discounts": [{"valueType": "FIXED", "value": "36000", "amount": {"amount": "36000"}, "reason": "PROMO10"}],
     "voucherCode": "PROMO10",
     "total": {"net": {"amount": "220000"}, "gross": {"amount": "246400"}, "tax": {"amount": "26400"}},
@@ -58,7 +58,7 @@ def test_payload_parses_financials():
     assert line.taxRate == Decimal("0.12")
     assert so.shippingPrice.net.amount == Decimal("20000")
     assert so.shippingPrice.tax.amount == Decimal("2400")
-    assert so.shippingMethodName == "Курьер"
+    assert so.shippingMethodName == "Courier"
     assert so.voucherCode == "PROMO10"
     assert so.discounts[0].amount.amount == Decimal("36000")
     assert so.total.net.amount == Decimal("220000")
@@ -91,7 +91,7 @@ def test_mapper_populates_financials():
     assert order.shipping_net == Decimal("20000")
     assert order.shipping_tax == Decimal("2400")
     assert order.shipping_tax_rate == Decimal("12")  # 2400/20000*100
-    assert order.shipping_method_name == "Курьер"
+    assert order.shipping_method_name == "Courier"
     assert order.voucher_code == "PROMO10"
     assert order.total_net == Decimal("220000")
     assert order.total_tax == Decimal("26400")
@@ -129,7 +129,7 @@ async def test_build_lines_uses_net_price_and_tax_id():
     odoo = FakeOdoo(products={"SKU-9": 55}, taxes={12.0: 7})
     order = Order(
         external_id="o", external_number="9", customer_email="a@b.co",
-        lines=[OrderLine(sku="SKU-9", product_name="Куртка", quantity=2,
+        lines=[OrderLine(sku="SKU-9", product_name="Jacket", quantity=2,
                          unit_price=Decimal("112000"), currency="UZS",
                          net_unit_price=Decimal("100000"), tax_amount=Decimal("12000"),
                          tax_rate=Decimal("12"))],
@@ -164,11 +164,11 @@ async def test_create_draft_adds_shipping_line():
     odoo = FakeOdoo(products={"SKU-9": 55, "SHIPPING": 99}, taxes={12.0: 7})
     order = Order(
         external_id="o", external_number="9", customer_email="a@b.co",
-        lines=[OrderLine(sku="SKU-9", product_name="Куртка", quantity=2,
+        lines=[OrderLine(sku="SKU-9", product_name="Jacket", quantity=2,
                          unit_price=Decimal("112000"), currency="UZS",
                          net_unit_price=Decimal("100000"), tax_rate=Decimal("12"))],
         shipping_net=Decimal("20000"), shipping_tax=Decimal("2400"),
-        shipping_tax_rate=Decimal("12"), shipping_method_name="Курьер",
+        shipping_tax_rate=Decimal("12"), shipping_method_name="Courier",
     )
     await so_adapter.create_draft_order(odoo, order, partner_id=1, invoice_id=1, shipping_id=1,
                                         shipping_sku="SHIPPING")

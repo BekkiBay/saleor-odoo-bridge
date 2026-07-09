@@ -7,7 +7,6 @@ from saleor_bridge.adapters.saleor.customer_mapper import (
     saleor_user_to_customer,
 )
 
-
 SUBSCRIPTION_PAYLOAD = {
     "event": {
         "user": {
@@ -56,7 +55,7 @@ def test_display_name_falls_back_to_email():
 
 
 def test_legacy_direct_user_payload():
-    """Не-subscription payload (прямой user объект)."""
+    """Non-subscription payload (a direct user object)."""
     user = extract_user({"id": "VXNlcjoz", "email": "bob@example.com", "firstName": "Bob"})
     c = saleor_user_to_customer(user)
     assert c.external_id == "VXNlcjoz"

@@ -2,66 +2,87 @@
 Saleor Sync
 ============
 
-Odoo-side helper для двусторонней синхронизации с Saleor.
+Odoo-side half of the bidirectional sync between Odoo and Saleor.
 
-**Phase 3.0 — skeleton.** Содержит только:
+This module keeps Odoo's catalog, stock, and order state in sync with a
+Saleor storefront, via the ``saleor-odoo-bridge`` middleware. It provides:
 
-- модель ``saleor.binding`` (external ID mapping таблица),
-- ACL + tree/form views,
-- меню ``Saleor Sync → Bindings``.
+- ``saleor.binding`` — the external ID mapping table between Odoo records
+  and Saleor objects (``model_name`` + ``odoo_id`` ↔ ``saleor_id``), with a
+  ``sync_state`` (pending / synced / failed / diverged) and an
+  ``error_message`` for the last failure (see ADR-0003, ADR-0007, ADR-0008).
+- ``saleor.outbox`` — an audit/debug log of outbound events sent to the
+  middleware, recording the payload, HTTP response code, and outcome
+  (sent / confirmed / failed) for every dispatch.
+- A ``sale.order`` extension: a computed, unified ``fulfillment_status``
+  (five steps — paid, assembling, shipped, delivered, cancelled) plus a
+  manually-set ``delivered_to_customer`` flag. Both are pushed to the Saleor
+  order's metadata by the middleware so the storefront and Odoo always show
+  the same status (see ADR-0019, ADR-0021).
+- ``models/product_sync.py`` — dispatch logic that turns changes to
+  ``product.template``, ``product.category``, ``product.attribute``,
+  ``product.attribute.value``, ``product.product`` (variants),
+  ``stock.quant``, ``sale.order`` state, and ``stock.picking`` into outbound
+  events for the middleware (see ADR-0011, ADR-0017, ADR-0019, ADR-0023,
+  ADR-0024, ADR-0026, ADR-0027).
+- Server actions (``data/ir_actions_server_data.xml``) and
+  ``base.automation`` rules (``data/base_automation_data.xml``) that fire on
+  record create/write and call the dispatch logic above.
+- A skip-guard context key, ``saleor_sync_skip``, that callers can set to
+  suppress the outbound webhook for a given write — used so that writes
+  originating from Saleor-side events do not echo straight back to Saleor
+  (see ADR-0020).
 
-Реальная бизнес-логика (mappers, server actions, queue_job hooks) — в Phase 3.1+.
-
-Зависимости
-===========
+Dependencies
+============
 
 - ``sale_management``
 - ``stock``
+- ``stock_delivery`` (``carrier_tracking_ref`` on ``stock.picking``)
 - ``account``
+- ``base_automation`` (triggers for the outbound webhooks)
 
-**Опционально (Phase 3.1+):** ``queue_job`` из `OCA/queue <https://github.com/OCA/queue>`_.
+Installation
+=============
 
-Установка
-=========
-
-Через UI:
+Via the UI:
 
 1. Apps → Update Apps List.
-2. Поиск "Saleor Sync".
+2. Search for "Saleor Sync".
 3. Install.
 
-Или CLI:
+Or via the CLI:
 
 .. code-block:: bash
 
    docker compose exec odoo odoo -d marketplace -i saleor_sync --stop-after-init
 
-Конфигурация
-============
+Configuration
+=============
 
-В Phase 3.0 — конфигурации нет. Модуль просто разворачивает таблицу
-``saleor.binding`` и UI к ней.
+The module talks to the middleware over HTTP and authenticates with a
+shared secret. Configuration is read through ``ir.config_parameter``, seeded
+at install time by the ``post_init_setup_config_parameters`` post-init hook,
+but the following environment variables take precedence whenever they are
+set on the Odoo container (so rotating a secret and restarting takes effect
+immediately, without reinstalling the module):
 
-Установка OCA queue_job (Phase 3.1+)
-=====================================
+- ``BRIDGE_ODOO_WEBHOOK_SECRET`` — shared secret sent as a query parameter
+  on every outbound POST to the middleware (falls back to the stored
+  ``saleor_sync.webhook_secret`` parameter).
+- ``BRIDGE_MIDDLEWARE_INTERNAL_URL`` — base URL of the middleware's internal
+  API, e.g. ``http://middleware:8080`` (falls back to the stored
+  ``saleor_sync.middleware_url`` parameter).
 
-Когда понадобится background queue, добавь OCA queue в ``odoo/addons/``:
+See also
+========
 
-.. code-block:: bash
-
-   cd odoo/addons
-   git clone --depth 1 --branch 19.0 https://github.com/OCA/queue.git oca-queue
-   # symlink или volume mount: oca-queue/queue_job нужен в addons_path
-
-   docker compose restart odoo
-   # Apps → Update Apps List → install queue_job
-
-После установки ``queue_job`` — добавь его в ``saleor_sync/__manifest__.py``
-в ``depends`` и сделай ``-u saleor_sync``.
-
-См. также
-=========
-
-- `Phase 3 research doc <../../../docs/phase-3-integration-research.md>`_
+- Repository root `README <../../../README.md>`_ for the overall
+  architecture of the bridge (Odoo, middleware, Saleor).
 - `ADR-0003: Odoo custom module <../../../docs/adr/0003-odoo-custom-module.md>`_
 - `ADR-0007: SKU as natural key <../../../docs/adr/0007-sku-as-natural-key.md>`_
+- `ADR-0008: Failed sync handling <../../../docs/adr/0008-failed-sync-handling.md>`_
+- `ADR-0011: Secret in query for the Odoo webhook <../../../docs/adr/0011-secret-in-query-for-odoo-webhook.md>`_
+- `ADR-0019: Order status mapping <../../../docs/adr/0019-order-status-mapping.md>`_
+- `ADR-0020: Skip-guard mechanism <../../../docs/adr/0020-skip-guard-mechanism.md>`_
+- `docs/adr <../../../docs/adr/>`_ for the full architecture decision log

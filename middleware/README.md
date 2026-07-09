@@ -1,35 +1,47 @@
-# Saleor Bridge — Middleware
+# saleor-bridge — middleware
 
-Phase 3.1. FastAPI-сервис + arq worker между Saleor 3.23 и Odoo 19. Синк customers + orders Saleor → Odoo.
+FastAPI service + [arq](https://github.com/python-arq/arq) worker sitting between
+Saleor and Odoo. Syncs customers and orders Saleor → Odoo, and catalog, stock and
+order status Odoo → Saleor.
 
-См. [`../docs/decisions.md`](../docs/decisions.md) — архитектурные решения. См. [`../docs/phase-3-integration-research.md`](../docs/phase-3-integration-research.md) — research.
+See [`../docs/decisions.md`](../docs/decisions.md) for the architecture decision records.
 
-## Что умеет (Phase 3.1)
+## What it does
 
 **Endpoints (FastAPI):**
-- `GET /health` — статус + проверка Redis/Odoo.
-- `GET /api/manifest` — App manifest (6 webhook subscriptions).
-- `POST /api/register` — token exchange.
-- `POST /api/webhooks/{event}` — 6 webhook receiver'ов: JWS verify → idempotency (Redis SET NX 24h) → enqueue arq → 200.
+
+- `GET /health` — liveness. Always 200; reports Redis/Odoo state per dependency.
+- `GET /ready` — readiness. **503** unless Redis and Odoo both answer.
+- `GET /api/manifest` — Saleor App manifest (6 webhook subscriptions).
+- `POST /api/register` — token exchange after `appInstall`.
+- `POST /api/webhooks/{event}` — webhook receivers: JWS verify → idempotency
+  (Redis `SET NX`, 24 h) → enqueue arq job → 200.
+- `POST /api/odoo-events` — inbound Odoo events, authenticated with a shared secret.
 
 **Worker (arq):**
-- `CUSTOMER_CREATED` / `CUSTOMER_UPDATED` → upsert `res.partner` (по email, + child addresses invoice/delivery).
-- `ORDER_CREATED` → `sale.order` draft (+ ensure customer, resolve product по SKU).
-- `ORDER_CONFIRMED` → noop (ждём PAID, ADR-0005).
+
+- `CUSTOMER_CREATED` / `CUSTOMER_UPDATED` → upsert `res.partner` (matched by email,
+  plus invoice/delivery child addresses).
+- `ORDER_CREATED` → `sale.order` draft (ensures the customer, resolves products by SKU).
+- `ORDER_CONFIRMED` → no-op (waits for payment, ADR-0005).
 - `ORDER_FULLY_PAID` → `action_confirm` → state `sale`.
 - `ORDER_CANCELLED` → `action_cancel` → state `cancel`.
-- Retry: 3 попытки exponential backoff. После — Slack + email + `saleor.binding.sync_state='failed'` (ADR-0008).
+- Odoo → Saleor: categories, attributes, products, variants, per-variant channel
+  pricing, stock levels, order status metadata.
+- Retries: 3 attempts with exponential backoff. After the last one → Slack + email
+  alert and `saleor.binding.sync_state='failed'` (ADR-0008).
 
-**Архитектура (hexagonal / ports & adapters):**
+**Architecture (hexagonal / ports & adapters):**
+
 ```
 adapters/saleor/  — payload → domain (Saleor-specific)
-domain/           — чистые pydantic модели (platform-independent)
-usecases/         — бизнес-логика (sync_customer, sync_order)
+domain/           — pure pydantic models (platform-independent)
+usecases/         — business logic (sync_customer, sync_order, …)
 adapters/odoo/    — domain → JSON-2 calls (Odoo-specific)
 ```
-Завтра Shopify → добавить `adapters/shopify/`, остальное не трогать.
 
-## Архитектурная диаграмма
+Adding another storefront (Shopify, say) means adding `adapters/shopify/` and
+leaving everything else alone.
 
 ```
 Saleor ──webhook──▶ FastAPI (/api/webhooks/{event})
@@ -38,143 +50,121 @@ Saleor ──webhook──▶ FastAPI (/api/webhooks/{event})
                                           Redis ◀─────┘
                                             │
                               arq worker ◀──┘
-                              payload→domain→usecase
-                                            │ JSON-2 (bearer apikey)
+                              payload → domain → usecase
+                                            │ JSON-2 (bearer api key)
                                             ▼
-                                          Odoo (res.partner, sale.order)
+                                          Odoo (res.partner, sale.order, …)
 ```
 
-## Требования
+## Requirements
 
-- Python **3.11+** (если у тебя 3.9 — обнови или используй `uv python install 3.12`).
-- Docker 24+ (для compose-режима).
-- Публичный URL для Saleor webhooks (ngrok / Cloudflare Tunnel).
+- Python **3.11+**
+- Docker 24+ (for the compose stack)
+- A public URL for Saleor webhooks (ngrok / Cloudflare Tunnel)
 
-## Быстрый старт — через docker compose
+## Quick start — docker compose
 
-Из корня `odoo-saleor-integration/`:
+From the repository root:
 
 ```bash
-# 1. Все env vars (включая BRIDGE_*) лежат в корневом /.env.
-#    Запусти ../../scripts/setup-env.sh — он сделает симлинк odoo-saleor-integration/.env -> ../.env
-../../scripts/setup-env.sh
+cp .env.example .env     # fill in the values
+docker compose up -d     # db + odoo + redis + middleware + worker
 
-# 2. Поднять весь стек (db + odoo + redis + middleware)
-docker compose up -d
-
-# 3. Проверить
 curl http://localhost:8080/health
 curl http://localhost:8080/api/manifest
 ```
 
-## Локальный dev (без Docker)
+## Local development (no Docker)
 
 ```bash
 cd middleware
-uv venv --python 3.12
-source .venv/bin/activate
-uv pip install -e ".[dev]"
+python -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
 
-# Env берётся из корневого /.env через симлинк odoo-saleor-integration/.env (см. ../../scripts/setup-env.sh).
-# Для standalone dev можешь экспортить BRIDGE_* напрямую: `set -a; source ../.env; set +a`
+# Load the root .env into the environment:
+set -a; source ../.env; set +a
 
-# Redis нужен — поднимай отдельно: docker run -p 6379:6379 -d redis:7-alpine
+# Redis is required — run it separately:
+docker run -p 6379:6379 -d redis:7-alpine
 
 uvicorn saleor_bridge.main:app --reload --port 8080
 ```
 
-## Тесты
+The bulk-seed CLI lives behind an extra: `pip install -e ".[cli]"`.
+
+## Tests
 
 ```bash
 cd middleware
-uv pip install -e ".[dev]"
-pytest -v
+pip install -e ".[dev]"
+pytest -q
 ```
 
-Покрывают:
-- `test_signature.py` — JWS verify happy path + 4 failure modes.
-- `test_manifest.py` — substitution public URL, permissions, smoke webhook.
+Coverage includes JWS signature verification, idempotency and skip-guards,
+order/customer/product/variant/stock mapping, order financials, reconcile diffs,
+readiness semantics, and manifest generation.
 
-## ngrok setup (для приёма webhooks от Saleor)
+## Exposing the middleware to Saleor
 
-Saleor должен ходить к нашему middleware через интернет. Локально — через ngrok.
+Saleor must reach the middleware over the internet to deliver webhooks. Locally,
+tunnel it:
 
 ```bash
-brew install ngrok
-ngrok config add-authtoken <твой токен с ngrok.com>
 ngrok http 8080
 ```
 
-Скопируй HTTPS URL вида `https://abc123.ngrok-free.app` в `.env`:
+Copy the HTTPS URL into `.env`:
 
 ```
 BRIDGE_MIDDLEWARE_PUBLIC_URL=https://abc123.ngrok-free.app
 ```
 
-**Important:** на free tier ngrok URL **меняется при каждом перезапуске**. После рестарта:
-1. Обнови `BRIDGE_MIDDLEWARE_PUBLIC_URL` в `.env`.
+**Note:** on ngrok's free tier the URL changes on every restart. After a restart:
+
+1. Update `BRIDGE_MIDDLEWARE_PUBLIC_URL` in `.env`.
 2. `docker compose restart middleware`.
-3. Перерегистрируй App в Saleor (`appInstall` с новым manifest URL).
+3. Re-register the App in Saleor (`appInstall` with the new manifest URL).
 
-**Альтернатива — Cloudflare Tunnel** (stable URL без paid tier):
-- Регистрация на Cloudflare → Zero Trust → Tunnels.
-- `brew install cloudflared`.
-- `cloudflared tunnel create saleor-bridge`.
-- Mapped DNS → routes на `localhost:8080`.
+**Alternative — Cloudflare Tunnel** gives a stable URL without a paid tier: create a
+tunnel in Cloudflare Zero Trust, run `cloudflared tunnel create saleor-bridge`, and
+route DNS to `localhost:8080`.
 
-## Smoke test end-to-end
+## Installing the App in Saleor
 
-После того как ngrok запущен и middleware up:
-
-1. **Проверь manifest доступен снаружи:**
-   ```bash
-   curl https://<ngrok-subdomain>.ngrok-free.app/api/manifest
-   ```
-   Должен вернуть JSON с `id`, `permissions`, `webhooks` (один на CUSTOMER_CREATED).
-
-2. **Установи App в Saleor через GraphQL** (Saleor Dashboard → Apps → "Local apps" → "Add app from URL", или прямой mutation):
-   ```graphql
-   mutation {
-     appInstall(input: {
-       appName: "Justix Odoo Sync"
-       manifestUrl: "https://<ngrok-subdomain>.ngrok-free.app/api/manifest"
-       permissions: [MANAGE_ORDERS, MANAGE_PRODUCTS, MANAGE_USERS, MANAGE_PRODUCT_TYPES_AND_ATTRIBUTES, MANAGE_CHANNELS]
-     }) {
-       appInstallation { id status appName manifestUrl }
-       appErrors { field message code }
-     }
-   }
-   ```
-
-3. **Saleor POST'нет на `/api/register`** — middleware сохранит token в Redis. В логах:
-   ```
-   {"event": "register_ok", "saleor_api_url": "...", "domain": "...", "token_len": 30}
-   ```
-
-4. **Создай тестового клиента** в Saleor Dashboard (Customers → New) или через GraphQL `customerCreate`.
-
-5. **В логах middleware появится:**
-   ```
-   {"event": "webhook_received", "event": "CUSTOMER_CREATED", "signature_valid": true, "kid": "...", "took_ms": 23}
-   ```
-
-Если signature_valid=false — проверь, что middleware ходит за JWKS на правильный URL (`{saleor}/.well-known/jwks.json`).
-
-## Phase 3.1 — local E2E test (без ngrok)
-
-Webhook signature тестируется unit-тестами. Бизнес-логику (worker → Odoo) можно прогнать **без Saleor/ngrok**, enqueue'я job напрямую в arq.
-
-**Сначала: Odoo API key** (JSON-2 требует bearer). Сгенерировать для admin-пользователя (uid 2, не superuser — у superuser `active=false`, JSON-2 его отвергнет; нужен **global scope = NULL**, не 'rpc'):
+Check the manifest is reachable from outside:
 
 ```bash
-printf "env['res.users.apikeys'].with_user(2)._generate(None,'saleor-bridge','2026-12-31 23:59:59')\nenv.cr.commit()" \
-  | docker compose exec -T odoo odoo shell -c /tmp/odoo.conf -d marketplace --no-http
-# скопировать ключ → .env BRIDGE_ODOO_API_KEY → docker compose up -d middleware middleware-worker
+curl https://<your-public-url>/api/manifest
 ```
 
-В проде ключ создаётся через UI: Preferences → Account Security → New API Key.
+It should return JSON with `id`, `permissions` and `webhooks`. The app's identity
+(`id`, name, homepage, support URL, author) comes from the `BRIDGE_APP_*` variables
+in `.env` — set them to your own before installing.
 
-**Прогон customer + order:**
+Then either use the Saleor Dashboard (Apps → install from URL), run
+`python scripts/install_bridge_app.py` from the repository root, or call the
+mutation directly:
+
+```graphql
+mutation {
+  appInstall(input: {
+    appName: "Saleor Odoo Sync"
+    manifestUrl: "https://<your-public-url>/api/manifest"
+    permissions: [MANAGE_ORDERS, MANAGE_PRODUCTS, MANAGE_USERS,
+                  MANAGE_PRODUCT_TYPES_AND_ATTRIBUTES, MANAGE_CHANNELS]
+  }) {
+    appInstallation { id status }
+    errors { field message }
+  }
+}
+```
+
+Saleor fetches the manifest, POSTs a token to `/api/register`, and the middleware
+stores it in the Redis APL, where the worker and the CLI read it from.
+
+## Enqueueing a job by hand
+
+Useful when you want to exercise the worker without driving Saleor:
 
 ```bash
 docker compose exec -T middleware python -c "
@@ -182,10 +172,10 @@ import asyncio
 from saleor_bridge.queue.pool import make_arq_pool
 from saleor_bridge.config import get_settings
 cust={'event':{'user':{'id':'VXNlcjox','email':'a@example.com','firstName':'A','lastName':'B',
-  'defaultBillingAddress':{'streetAddress1':'St 1','city':'Tashkent','country':{'code':'UZ'},'phone':'+998901112233'}}}}
+  'defaultBillingAddress':{'streetAddress1':'St 1','city':'Springfield','country':{'code':'US'},'phone':'+15551112233'}}}}
 order={'event':{'order':{'id':'T3JkZXI6MQ==','number':'1001','userEmail':'a@example.com',
-  'lines':[{'productName':'X','productSku':'SKU-001','quantity':2,'unitPrice':{'gross':{'amount':'450000','currency':'UZS'}},'variant':{'sku':'SKU-001'}}],
-  'total':{'gross':{'amount':'900000','currency':'UZS'}}}}}
+  'lines':[{'productName':'X','productSku':'SKU-001','quantity':2,'unitPrice':{'gross':{'amount':'45.00','currency':'USD'}},'variant':{'sku':'SKU-001'}}],
+  'total':{'gross':{'amount':'90.00','currency':'USD'}}}}}
 async def m():
     p=await make_arq_pool(get_settings().redis_url)
     await p.enqueue_job('process_customer_created',cust); await asyncio.sleep(2)
@@ -194,26 +184,34 @@ async def m():
     await p.aclose()
 asyncio.run(m())
 "
-docker compose logs -f middleware-worker   # смотреть customer_synced / order_created / order_confirmed
+docker compose logs -f middleware-worker   # customer_synced / order_created / order_confirmed
 ```
 
-Проверить в Odoo: Contacts → новый partner; Sales → новый order (draft → sale после paid).
-
-**Note:** email с `.test`/reserved TLD отвергается pydantic EmailStr — используй `example.com`.
+Then check Odoo: Contacts → a new partner; Sales → a new order (draft → sale once paid).
 
 ## Troubleshooting
 
-**`{"status": "ok", "redis": "fail", "odoo": "fail"}` на /health**
-Middleware не достучался до Redis или Odoo. Из docker compose контейнера — `BRIDGE_REDIS_URL=redis://redis:6379/0` (имя сервиса), `BRIDGE_ODOO_URL=http://odoo:8069`. Из локального dev — `redis://localhost:6379/0` и `http://localhost:8069`.
+**`/ready` returns 503, or `/health` shows `"redis": "fail"` / `"odoo": "fail"`**
+The middleware cannot reach a dependency. From inside compose, use the service names —
+`BRIDGE_REDIS_URL=redis://redis:6379/0`, `BRIDGE_ODOO_URL=http://odoo:8069`. From local
+dev, `redis://localhost:6379/0` and `http://localhost:8069`.
 
-**Saleor self-hosted не доступен из middleware-контейнера**
-На macOS/Windows — `http://host.docker.internal:8000/graphql/`. На Linux — добавь `extra_hosts: ["host.docker.internal:host-gateway"]` в compose.
+**`/api/odoo-events` returns 503**
+`BRIDGE_ODOO_WEBHOOK_SECRET` is empty or still set to the legacy placeholder. The
+endpoint fails closed rather than trusting a publicly known secret.
 
-**JWKS endpoint не найден (404)**
-Saleor 3.5+ выставляет на `{shop_url}/.well-known/jwks.json`. Если у вас reverse proxy перекрывает `/.well-known/*` — пропустить через proxy.
+**A self-hosted Saleor is unreachable from the middleware container**
+On macOS/Windows use `http://host.docker.internal:8000/graphql/`. On Linux the compose
+file already adds `extra_hosts: ["host.docker.internal:host-gateway"]`.
 
-**`Saleor-Signature` header пустой**
-Возможно у webhook'а включён legacy HMAC mode (`secretKey` задан). В Phase 3.0 поддерживаем только JWS. Создавай webhook без `secretKey`. См. ADR-0002.
+**JWKS endpoint not found (404)**
+Saleor 3.5+ serves it at `{shop_url}/.well-known/jwks.json`. If a reverse proxy
+intercepts `/.well-known/*`, let it through.
 
-**После рестарта ngrok URL поменялся**
-Это норма на free tier. Update `.env` + `docker compose restart middleware` + перерегистрируй App в Saleor.
+**`Saleor-Signature` header is empty**
+The webhook is probably in legacy HMAC mode (a `secretKey` is set). Only JWS is
+supported — create the webhook without `secretKey`. See ADR-0002.
+
+**A sync failed and nothing obvious is in the logs**
+Check the `saleor.binding` record in Odoo: `sync_state` and `error_message` carry the
+reason. Set `BRIDGE_LOG_LEVEL=DEBUG` for structured JSON logs of every call.

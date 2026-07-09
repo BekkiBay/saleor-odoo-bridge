@@ -1,7 +1,7 @@
-"""Bulk seed остатков: все активные варианты Odoo → Saleor (Phase 3.3, ADR-0013 стиль).
+"""Bulk seed stock levels: all active Odoo variants → Saleor (ADR-0013 style).
 
-Идемпотентно (productVariantStocksUpdate = upsert). Варианты без catalog-binding
-(товар не засеян в Saleor) считаются skip — не ошибка.
+Idempotent (productVariantStocksUpdate = upsert). Variants without a
+catalog-binding (product not seeded in Saleor) are counted as skip — not an error.
 """
 
 from __future__ import annotations
@@ -49,7 +49,7 @@ async def run_bulk_seed_stocks(
             else:
                 summary["skip"] += 1
         except CatalogBindingMissing:
-            summary["skip"] += 1  # товар не в каталоге Saleor — норм
+            summary["skip"] += 1  # product not in the Saleor catalog — expected
         except Exception as exc:  # noqa: BLE001
             summary["failed"] += 1
             summary["errors"].append(f"variant {pp_id}: {exc}")

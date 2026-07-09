@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 import structlog
 from arq import cron
 from arq.connections import RedisSettings
@@ -26,7 +28,7 @@ def _redis_settings() -> RedisSettings:
 
 
 class WorkerSettings:
-    functions = [
+    functions: ClassVar[list] = [
         tasks.process_customer_created,
         tasks.process_customer_updated,
         tasks.process_order_created,
@@ -34,12 +36,12 @@ class WorkerSettings:
         tasks.process_order_cancelled,
         tasks.sync_odoo_record_to_saleor,
     ]
-    # Stock reconcile (ADR-0018): daily 02:00 (контейнер в UTC) — dry-run, лог дрейфа.
-    cron_jobs = [cron(tasks.reconcile_stock_drift, hour=2, minute=0)]
+    # Stock reconcile (ADR-0018): daily 02:00 (container runs in UTC) — dry-run, logs drift.
+    cron_jobs: ClassVar[list] = [cron(tasks.reconcile_stock_drift, hour=2, minute=0)]
     on_startup = on_startup
     on_shutdown = on_shutdown
     redis_settings = _redis_settings()
     max_tries = 3
-    # backoff: arq default exponential. retry delays ~ (job_try^2). См. spec 1s/4s/16s.
+    # backoff: arq default exponential. retry delays ~ (job_try^2). See spec 1s/4s/16s.
     retry_jobs = True
     keep_result = 3600

@@ -1,28 +1,28 @@
 # Architecture Decision Records (ADRs)
 
-Каждый ADR фиксирует одно архитектурное решение по проекту Saleor↔Odoo интеграции.
+Each ADR records a single architectural decision for the Saleor↔Odoo integration project.
 
-Формат ADR:
+ADR format:
 
 ```
-# ADR-NNNN: Заголовок
+# ADR-NNNN: Title
 
 ## Status
-Accepted | Superseded by ADR-XXXX | Deprecated (дата)
+Accepted | Superseded by ADR-XXXX | Deprecated (date)
 
 ## Context
-Что заставило принять решение. Бизнес-требования, технические ограничения.
+What drove the decision. Business requirements, technical constraints.
 
 ## Decision
-Что решили. Без воды.
+What was decided. No filler.
 
 ## Alternatives considered
-Что рассматривали и почему отбросили.
+What was considered, and why it was rejected.
 
 ## Consequences
-Pros / Cons / риски / что это значит для будущего.
+Pros / Cons / risks / what this means going forward.
 ```
 
-ADR — **append-only**. Если решение меняется — пишем новый ADR со ссылкой `Superseded by ADR-XXXX` в статусе старого.
+ADRs are **append-only**. If a decision changes, we write a new ADR with a `Superseded by ADR-XXXX` reference in the status of the old one.
 
-Индекс активных решений: [`../decisions.md`](../decisions.md).
+Index of active decisions: [`../decisions.md`](../decisions.md).

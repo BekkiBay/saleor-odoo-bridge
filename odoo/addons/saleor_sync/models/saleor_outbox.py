@@ -1,8 +1,8 @@
-"""Outbound events buffer Odoo → Saleor (audit + debug, Phase 3.2).
+"""Outbound events buffer Odoo → Saleor (audit + debug).
 
-Не критичен для функциональности: даёт оператору видимость «что отправилось,
-что нет». Заполняется серверным action'ом при каждом outbound-событии (см.
-models/product_sync.py + data/base_automation_data.xml).
+Not critical for functionality: gives an operator visibility into what was
+sent and what wasn't. Populated by a server action on every outbound event
+(see models/product_sync.py + data/base_automation_data.xml).
 """
 
 from odoo import fields, models
@@ -20,12 +20,12 @@ class SaleorOutbox(models.Model):
             ("create", "Create"),
             ("write", "Update"),
             ("unlink", "Archive"),
-            ("state_change", "State change"),  # Phase 3.4: sale.order state
-            ("shipped", "Shipped"),            # Phase 3.4: stock.picking done
+            ("state_change", "State change"),  # sale.order state
+            ("shipped", "Shipped"),            # stock.picking done
         ],
         required=True,
     )
-    payload = fields.Text(help="JSON snapshot отправленного в middleware.")
+    payload = fields.Text(help="JSON snapshot of what was sent to the middleware.")
     state = fields.Selection(
         [
             ("sent", "Sent to middleware"),

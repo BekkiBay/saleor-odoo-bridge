@@ -1,76 +1,80 @@
-# Runbook — Bulk seed каталога Odoo → Saleor (Phase 3.2)
+# Runbook — Bulk seed catalog Odoo → Saleor
 
-Первичная выгрузка каталога (18 категорий + 30 продуктов) из Odoo в Saleor и
-последующая инкрементальная синка по webhook'ам. См. ADR-0011..0014.
+Initial export of the catalog from Odoo to Saleor, followed by incremental
+sync via webhooks. See ADR-0011..0014.
 
-## Архитектура (reverse flow)
+## Architecture (reverse flow)
 
 ```
 Odoo product.template/category  ──base.automation──▶ ir.actions.server (code)
-   │ _saleor_dispatch() пишет saleor.outbox + POST
+   │ _saleor_dispatch() writes saleor.outbox + POST
    ▼
 POST {middleware}/api/odoo-events?secret=…   (ADR-0011)
-   │ validate secret → enqueue arq (defer ~3s, dedup по model+id) → 200
+   │ validate secret → enqueue arq (defer ~3s, dedup by model+id) → 200
    ▼
 arq worker: sync_odoo_record_to_saleor
-   fetch из Odoo (JSON-2) → resolve binding → Saleor mutation → upsert saleor.binding
+   fetch from Odoo (JSON-2) → resolve binding → Saleor mutation → upsert saleor.binding
 ```
 
-Bulk seed обходит webhook flow и пушит весь каталог сам (ADR-0013).
+Bulk seed bypasses the webhook flow and pushes the whole catalog itself (ADR-0013).
 
-## Предусловия
+## Preconditions
 
-1. **Оба стека подняты:**
+1. **Both sides are running:**
    ```bash
-   cd odoo-saleor-integration && docker compose up -d
-   cd ../saleor && docker compose up -d
+   docker compose up -d
    ```
-2. **Odoo настроен** (saleor_sync v0.2 установлен, каталог импортирован):
+   Plus your own Saleor instance, started separately and reachable at
+   `BRIDGE_SALEOR_API_URL` (default `http://localhost:8000/graphql/`) — this
+   repo does not ship a Saleor stack.
+2. **Odoo is configured** (saleor_sync v0.2 installed, catalog imported):
    ```bash
-   .venv/bin/python scripts/odoo_setup.py        # 30 products + 18 categories
+   .venv/bin/python scripts/odoo_setup.py        # imports the catalog (products + categories)
    ```
-3. **Odoo API key** в `.env` (`BRIDGE_ODOO_API_KEY`) — `scripts/generate_api_key.py`.
-4. **Webhook secret** одинаковый у обеих сторон:
+3. **Odoo API key** in `.env` (`BRIDGE_ODOO_API_KEY`) — via `scripts/generate_api_key.py`.
+4. **Webhook secret** matching on both sides:
    ```
-   BRIDGE_ODOO_WEBHOOK_SECRET=<32+ случайных символа>
+   BRIDGE_ODOO_WEBHOOK_SECRET=<32+ random characters>
    ```
-   После правки `.env` — пересоздать (НЕ `restart`):
+   After editing `.env`, recreate the containers (NOT `restart`):
    ```bash
    docker compose up -d odoo middleware middleware-worker
    ```
-   Если saleor_sync уже стоял — обнови, чтобы post_init записал config-param:
+   If saleor_sync was already installed, upgrade it so post_init writes the
+   config-param:
    ```bash
    docker compose exec odoo odoo -c /tmp/odoo.conf -d marketplace -u saleor_sync --stop-after-init
    docker compose restart odoo
    ```
-5. **Bridge Saleor App установлен** (даёт middleware право писать в Saleor):
+5. **Bridge Saleor App installed** (gives the middleware permission to write to Saleor):
    ```bash
-   # public URL должен быть достижим из Saleor-контейнера:
+   # the public URL must be reachable from the Saleor container:
    #   BRIDGE_MIDDLEWARE_PUBLIC_URL=http://host.docker.internal:8080
    .venv/bin/python scripts/install_bridge_app.py
-   docker compose exec redis redis-cli KEYS 'saleor_bridge:apl:*'   # должен быть ключ
+   docker compose exec redis redis-cli KEYS 'saleor_bridge:apl:*'   # should return a key
    ```
 
 ## Seed
 
 ```bash
-# 1. План (read-only, ничего не меняет):
+# 1. Plan (read-only, changes nothing):
 docker compose exec middleware python -m saleor_bridge.cli.bulk_seed bulk-seed --dry-run
 
-# 2. (опционально, DESTRUCTIVE) очистить существующий Saleor-каталог:
+# 2. (optional, DESTRUCTIVE) wipe the existing Saleor catalog:
 docker compose exec middleware python -m saleor_bridge.cli.bulk_seed wipe --yes
 
-# 3. Реальный прогон (идемпотентно):
+# 3. Real run (idempotent):
 docker compose exec middleware python -m saleor_bridge.cli.bulk_seed bulk-seed
 ```
 
-Ожидаемый итог: 1 ProductType + 18 categories + 30 products, все опубликованы в
-`default-channel` с ценой UZS. В Odoo `saleor.binding` — 49 записей `state='synced'`.
+Expected result: 1 ProductType + all categories + all products, published in
+`default-channel` with a price in your configured currency. In Odoo,
+`saleor.binding` will show one `state='synced'` record per synced item.
 
-Повторный `bulk-seed` НЕ создаёт дублей — обновляет существующие (lookup по
-`saleor.binding.odoo_id`).
+Re-running `bulk-seed` does NOT create duplicates — it updates existing
+records (looked up via `saleor.binding.odoo_id`).
 
-## Проверка (Saleor GraphQL, через bridge-app токен)
+## Verification (Saleor GraphQL, via the bridge-app token)
 
 ```bash
 docker compose exec middleware python - <<'PY'
@@ -85,26 +89,27 @@ asyncio.run(main())
 PY
 ```
 
-## Инкрементальная синка (после seed)
+## Incremental sync (after seed)
 
-Изменишь имя/цену товара в Odoo → `base.automation` → outbox → middleware → Saleor
-за ~5 сек. Проверка: открой Saleor Dashboard либо повтори GraphQL-запрос выше.
+Change a product's name/price in Odoo → `base.automation` → outbox →
+middleware → Saleor within ~5s. Verify by opening the Saleor Dashboard or
+re-running the GraphQL query above.
 
 ## Troubleshooting
 
-| Симптом | Причина | Что делать |
+| Symptom | Cause | What to do |
 |---|---|---|
-| `NoSaleorToken` в CLI | bridge-app не установлен / токен протух | `python scripts/install_bridge_app.py`, проверь APL ключ |
-| `PermissionDenied: MANAGE_PRODUCTS` | App без прав (старый/удалённый) | переустанови app, см. п.5 предусловий |
-| `channel 'default-channel' не найден` | App без MANAGE_CHANNELS | переустанови app (PERMISSIONS включают MANAGE_CHANNELS) |
-| 401 от `/api/odoo-events` | секрет не совпал | сверь `saleor_sync.webhook_secret` (Odoo) и `BRIDGE_ODOO_WEBHOOK_SECRET` (middleware) |
-| webhook не приходит | автоматизация выключена / Odoo не видит middleware | проверь base.automation активна; `BRIDGE_MIDDLEWARE_INTERNAL_URL=http://middleware:8080` |
-| seed создал дубли | binding потёрт | дубли удали через `wipe`, повтори seed |
+| `NoSaleorToken` in CLI | bridge-app not installed / token expired | `python scripts/install_bridge_app.py`, check the APL key |
+| `PermissionDenied: MANAGE_PRODUCTS` | App missing permission (old/removed) | reinstall the app, see precondition 5 |
+| `channel 'default-channel' not found` | App missing MANAGE_CHANNELS | reinstall the app (PERMISSIONS include MANAGE_CHANNELS) |
+| 401 from `/api/odoo-events` | secret mismatch | compare `saleor_sync.webhook_secret` (Odoo) and `BRIDGE_ODOO_WEBHOOK_SECRET` (middleware) |
+| webhook never arrives | automation disabled / Odoo can't reach the middleware | check base.automation is active; `BRIDGE_MIDDLEWARE_INTERNAL_URL=http://middleware:8080` |
+| seed created duplicates | binding got wiped | remove duplicates via `wipe`, re-run seed |
 
-## Force-resync одного товара
+## Force-resync a single product
 
 ```bash
-# через Odoo shell — тронуть write_date, что запустит automation:
+# via Odoo shell — touch write_date, which triggers the automation:
 docker compose exec odoo odoo shell -c /tmp/odoo.conf -d marketplace <<'PY'
 env['product.template'].browse(7).write({'name': env['product.template'].browse(7).name})
 env.cr.commit()

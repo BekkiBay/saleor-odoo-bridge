@@ -4,11 +4,11 @@ from . import models
 
 
 def post_init_setup_config_parameters(env):
-    """Дефолтные config parameters для saleor_sync (Phase 3.2).
+    """Seed the default config parameters for saleor_sync.
 
-    middleware_url + webhook_secret берутся из env Odoo-контейнера; см.
-    docker-compose (odoo service). webhook_secret обязан совпадать с
-    BRIDGE_ODOO_WEBHOOK_SECRET у middleware.
+    middleware_url and webhook_secret are read from the Odoo container's
+    environment; see docker-compose.yml (odoo service). webhook_secret must
+    match BRIDGE_ODOO_WEBHOOK_SECRET on the middleware.
     """
     icp = env["ir.config_parameter"].sudo()
     icp.set_param(

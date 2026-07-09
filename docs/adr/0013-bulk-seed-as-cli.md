@@ -1,52 +1,56 @@
-# ADR-0013: Bulk seed как идемпотентная CLI-команда, не webhook flow
+# ADR-0013: Bulk seed as an idempotent CLI command, not a webhook flow
 
 ## Status
-Accepted (2026-05-23) — Phase 3.2
+Accepted (2026-05-23)
 
 ## Context
 
-Первичная выгрузка каталога Odoo → Saleor (18 категорий + 30 продуктов) — разовая
-операция. Два способа запустить:
+The initial catalog export from Odoo to Saleor (18 categories + 30 products) is a
+one-off operation. There are two ways to run it:
 
-1. **Через webhook flow** — заставить Odoo «выстрелить» событиями по всем записям
-   (например, массовый `write`). Минусы: зависимость от того, что Odoo сам инициирует
-   выгрузку; шумит в outbox/логах; нет управления порядком (категории должны идти
-   раньше продуктов); тяжело сделать `--dry-run`.
-2. **Через явную CLI-команду** — оператор командует выгрузку, видит план и прогресс.
+1. **Via the webhook flow** — make Odoo "fire" events for every record (e.g. a bulk
+   `write`). Downsides: depends on Odoo itself initiating the export; adds noise to
+   the outbox/logs; no control over ordering (categories must go before products);
+   hard to support `--dry-run`.
+2. **Via an explicit CLI command** — an operator triggers the export and can see the
+   plan and progress.
 
 ## Decision
 
-Bulk seed — **отдельная idempotent CLI-команда** (`typer`):
+Bulk seed is a **separate, idempotent CLI command** (`typer`):
 
 ```bash
 docker compose exec middleware python -m saleor_bridge.cli.bulk_seed bulk-seed
 docker compose exec middleware python -m saleor_bridge.cli.bulk_seed bulk-seed --dry-run
-docker compose exec middleware python -m saleor_bridge.cli.bulk_seed wipe   # снести Saleor-каталог
+docker compose exec middleware python -m saleor_bridge.cli.bulk_seed wipe   # tear down the Saleor catalog
 ```
 
-- Порядок: ensure ProductType → категории в **топологическом порядке** (родители
-  раньше) → продукты батчами.
-- **Идемпотентность**: каждый ensure_* сперва ищет `saleor.binding` по `odoo_id`;
-  есть → update, нет → create. Повторный прогон не плодит дубли.
-- `--dry-run` печатает план (сколько create/update/skip) без мутаций.
-- Прогресс — `rich`.
-- Не зависит от того, инициирует ли Odoo события: читает каталог из Odoo по JSON-2 и
-  пушит сам.
+- Order: ensure the ProductType exists → categories in **topological order** (parents
+  before children) → products in batches.
+- **Idempotency**: each `ensure_*` step first looks up `saleor.binding` by `odoo_id`;
+  if found it updates, otherwise it creates. Re-running the command doesn't create
+  duplicates.
+- `--dry-run` prints the plan (how many creates/updates/skips) without mutating
+  anything.
+- Progress is rendered via `rich`.
+- Doesn't depend on whether Odoo fires events: it reads the catalog from Odoo via
+  JSON-2 and pushes it itself.
 
-Регулярные изменения (после seed) идут уже через webhook flow
-(`base.automation` → `/api/odoo-events` → arq), см. ADR-0011.
+Ongoing changes (after the initial seed) go through the webhook flow
+(`base.automation` → `/api/odoo-events` → arq), see ADR-0011.
 
 ## Alternatives considered
 
-- **Webhook-based seed (вариант 1).** Отброшено: нет контроля порядка/плана, шум,
-  сложный dry-run.
-- **Management-команда внутри Odoo (`odoo shell`).** Отброшено: вся логика маппинга и
-  Saleor-клиент живут в middleware (ADR-0001); дублировать в Odoo — плохо.
+- **Webhook-based seeding (option 1).** Rejected: no control over ordering/plan,
+  noisy, hard to support dry-run.
+- **A management command inside Odoo (`odoo shell`).** Rejected: all the mapping
+  logic and the Saleor client live in the middleware (ADR-0001); duplicating that in
+  Odoo would be bad.
 
 ## Consequences
 
-**Pros:** оператор явно командует, видит план и прогресс; топологический порядок под
-контролем; легко повторять (идемпотентно) и тестировать.
+**Pros:** the operator explicitly triggers the run and sees the plan and progress;
+topological ordering is under control; easy to repeat (idempotent) and to test.
 
-**Cons:** ещё одна точка входа (CLI) в middleware-образе → доп. зависимость `typer`.
-Приемлемо.
+**Cons:** one more entry point (the CLI) in the middleware image → one extra
+dependency (`typer`). Acceptable.

@@ -1,9 +1,9 @@
 """arq task functions. Map raw payload → domain → usecase.
 
-Каждый task:
-1. Parse payload через saleor adapters → domain model.
+Each task:
+1. Parse payload via saleor adapters → domain model.
 2. Call usecase (sync_customer / sync_order).
-3. On error → raise (arq retries, max_tries в WorkerSettings).
+3. On error → raise (arq retries, max_tries in WorkerSettings).
 4. On final try fail → alert (Slack + email) + mark saleor.binding failed (ADR-0008).
 """
 
@@ -29,6 +29,10 @@ from saleor_bridge.observability.email import send_email_alert
 from saleor_bridge.observability.slack import send_slack_alert
 from saleor_bridge.odoo.client import OdooClient
 from saleor_bridge.usecases.reconcile_stocks import run_reconcile_stocks
+from saleor_bridge.usecases.sync_attribute_to_saleor import sync_attribute_to_saleor
+from saleor_bridge.usecases.sync_canonical_status_to_saleor import (
+    sync_canonical_status_to_saleor,
+)
 from saleor_bridge.usecases.sync_category_to_saleor import sync_category_to_saleor
 from saleor_bridge.usecases.sync_customer import sync_customer_to_odoo
 from saleor_bridge.usecases.sync_order import sync_order_to_odoo
@@ -36,10 +40,6 @@ from saleor_bridge.usecases.sync_order_status_to_saleor import (
     sync_order_state_to_saleor,
     sync_picking_to_saleor,
 )
-from saleor_bridge.usecases.sync_canonical_status_to_saleor import (
-    sync_canonical_status_to_saleor,
-)
-from saleor_bridge.usecases.sync_attribute_to_saleor import sync_attribute_to_saleor
 from saleor_bridge.usecases.sync_product_to_saleor import sync_product_to_saleor
 from saleor_bridge.usecases.sync_stock_to_saleor import sync_stock_to_saleor
 from saleor_bridge.usecases.sync_template_variants_to_saleor import (
@@ -72,15 +72,15 @@ async def _guard(
     fn: Callable[[], Awaitable[dict]],
     outbound: bool = False,
 ) -> dict:
-    """Run fn; retry с backoff через arq.Retry; на финальной попытке → alert + mark failed."""
+    """Run fn; retry with backoff via arq.Retry; on the final attempt → alert + mark failed."""
     try:
         result = await fn()
         if isinstance(result, dict) and result.get("ok") is False:
             raise SyncFailed(str(result.get("message") or "usecase returned ok=False"))
         return result
     except Retry:
-        raise  # arq control-flow, не трогаем
-    except Exception as exc:  # noqa: BLE001
+        raise  # arq control-flow, leave as-is
+    except Exception as exc:
         job_try = ctx.get("job_try", 1)
         max_tries = ctx.get("max_tries", 3)
         log.warning("task_failed", evt=event, saleor_id=saleor_id, try_=job_try, error=str(exc))
@@ -111,6 +111,11 @@ async def _on_final_failure(
         ops_email=s.ops_email,
         subject=f"[saleor-bridge] {event} failed for {saleor_id}",
         body=msg,
+        smtp_host=s.smtp_host,
+        smtp_port=s.smtp_port,
+        smtp_user=s.smtp_user,
+        smtp_password=s.smtp_password,
+        from_addr=s.alert_from_email,
     )
     log.error("task_final_failure", evt=event, saleor_id=saleor_id, error=str(exc))
 
@@ -159,10 +164,10 @@ async def _process_order(ctx: dict, payload: dict[str, Any], status: OrderStatus
     return await _guard(ctx, event=event, model_name="sale.order", saleor_id=so.id, fn=_run)
 
 
-# ── reverse flow: Odoo → Saleor catalog (Phase 3.2) ───────────────────────
+# ── reverse flow: Odoo → Saleor catalog ────────────────────────────────────
 
 async def sync_odoo_record_to_saleor(ctx: dict, model: str, odoo_id: int, action: str) -> dict:
-    """Pop Odoo event → fetch record → push в Saleor (product / category)."""
+    """Pop Odoo event → fetch record → push to Saleor (product / category)."""
     s = ctx["settings"]
 
     async def _run() -> dict:
@@ -172,7 +177,7 @@ async def sync_odoo_record_to_saleor(ctx: dict, model: str, odoo_id: int, action
         if model == "product.category":
             res = await sync_category_to_saleor(odoo_id, client, odoo, binding_repo, redis_url=s.redis_url)
         elif model in ("product.attribute", "product.attribute.value"):
-            # Phase 3.5 (ADR-0023/0027): глобальный Attribute + values + assign to ProductType.
+            # ADR-0023/0027: global Attribute + values + assign to ProductType.
             ptype = await ensure_product_type(client, binding_repo, s.saleor_product_type_name)
             res = await sync_attribute_to_saleor(
                 odoo_id, client, odoo, binding_repo, product_type_id=ptype, model=model
@@ -184,33 +189,33 @@ async def sync_odoo_record_to_saleor(ctx: dict, model: str, odoo_id: int, action
                 odoo_id, client, odoo, binding_repo,
                 channel_id=channel["id"], product_type_id=ptype, redis_url=s.redis_url,
             )
-            # Phase 3.5: реконсиляция набора вариантов (multi-variant + миграция dummy).
+            # Reconcile the variant set (multi-variant + dummy migration).
             if res.ok:
                 await sync_template_variants_to_saleor(
                     odoo_id, client, odoo, binding_repo, channel_id=channel["id"]
                 )
         elif model == "product.product":
-            # Phase 3.5: одно событие на product.product от ДВУХ триггеров (variant-поля
-            # И stock.quant, ADR-0017) — дедуп-бакет без action, поэтому handler делает оба.
-            # Сначала ensure варианта (price/attrs), потом stock per variant (Phase 3.3).
+            # A single event fires for product.product from TWO triggers (variant fields
+            # AND stock.quant, ADR-0017) — the dedup bucket has no action, so the handler does both.
+            # First ensure the variant (price/attrs), then stock per variant.
             channel = await resolve_channel(client, s.saleor_default_channel)
             res = await sync_variant_to_saleor(
                 odoo_id, client, odoo, binding_repo, channel_id=channel["id"]
             )
-            if res.ok and res.odoo_id is not None:  # odoo_id=None → variant archived, stock не нужен
+            if res.ok and res.odoo_id is not None:  # odoo_id=None → variant archived, stock not needed
                 await sync_stock_to_saleor(
                     odoo_id, client, odoo, binding_repo, safety_buffer=s.stock_safety_buffer
                 )
         elif model == "sale.order":
             # Order state change (ADR-0019): worker re-reads state → confirm/cancel.
             res = await sync_order_state_to_saleor(odoo_id, client, odoo, binding_repo)
-            # Unified status (spec 2026-06-22): push canonical justix_status metadata
+            # Unified status (spec 2026-06-22): push canonical fulfillment_status metadata
             # in the SAME job (avoids the /odoo-events per-(model,id) dedup collision).
             await sync_canonical_status_to_saleor(odoo_id, client, odoo, binding_repo)
         elif model == "stock.picking":
             # Picking validated (ADR-0019/0021): fulfill the linked Saleor order.
             res = await sync_picking_to_saleor(odoo_id, client, odoo, binding_repo)
-            # Unified status (spec 2026-06-22): push canonical justix_status for the
+            # Unified status (spec 2026-06-22): push canonical fulfillment_status for the
             # linked order (now SHIPPED). res.odoo_id carries the sale.order id.
             if res.ok and res.odoo_id:
                 await sync_canonical_status_to_saleor(res.odoo_id, client, odoo, binding_repo)
@@ -228,9 +233,9 @@ async def sync_odoo_record_to_saleor(ctx: dict, model: str, odoo_id: int, action
 # ── scheduled: stock reconcile (ADR-0018, arq cron daily 02:00 UTC) ───────
 
 async def reconcile_stock_drift(ctx: dict) -> dict:
-    """Daily dry-run reconcile: лог дрейфа, БЕЗ авто-правки (ADR-0018).
+    """Daily dry-run reconcile: logs drift, WITHOUT auto-fixing (ADR-0018).
 
-    Auto-fix — только вручную через CLI `reconcile-stocks --apply`.
+    Auto-fix is available only manually via the CLI `reconcile-stocks --apply`.
     """
     s = ctx["settings"]
     res = await run_reconcile_stocks(s, apply=False)

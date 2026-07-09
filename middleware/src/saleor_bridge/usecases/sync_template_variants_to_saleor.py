@@ -1,10 +1,10 @@
-"""Usecase: реконсиляция набора вариантов шаблона Odoo → Saleor (Phase 3.5).
+"""Usecase: reconcile the Odoo product.template variant set → Saleor.
 
-Авторитетная сверка: desired (active product.product шаблона) vs current (Saleor
-variants). Создаёт новые (bulk, ADR-0024), усыновляет/обновляет существующие,
-удаляет лишние (миграция dummy→real, ADR-0025). Идемпотентно.
+Authoritative reconciliation: desired (active product.product of the template) vs
+current (Saleor variants). Creates new ones (bulk, ADR-0024), adopts/updates existing
+ones, deletes stale ones (dummy→real migration, ADR-0025). Idempotent.
 
-Чистая diff-функция `diff_variants` отделена от I/O ради unit-тестов.
+The pure diff function `diff_variants` is kept separate from I/O for unit tests.
 """
 
 from __future__ import annotations
@@ -35,8 +35,8 @@ _VARIANT = "product.product"
 
 @dataclass
 class VariantDiff:
-    """План реконсиляции. `keep` — есть в обеих системах (update/adopt),
-    `create` — только в Odoo, `delete` — лишние Saleor-варианты (sku → id)."""
+    """Reconciliation plan. `keep` — present in both systems (update/adopt),
+    `create` — Odoo only, `delete` — stale Saleor variants (sku → id)."""
 
     keep: list[Variant] = field(default_factory=list)
     create: list[Variant] = field(default_factory=list)
@@ -44,7 +44,7 @@ class VariantDiff:
 
 
 def diff_variants(desired: list[Variant], current_skus: dict[str, str]) -> VariantDiff:
-    """desired (Odoo) vs current (Saleor {sku: id}) → план add/keep/delete. Чистая функция."""
+    """desired (Odoo) vs current (Saleor {sku: id}) → add/keep/delete plan. Pure function."""
     desired_skus = {v.sku for v in desired}
     diff = VariantDiff()
     for v in desired:
@@ -63,13 +63,13 @@ async def sync_template_variants_to_saleor(
 ) -> SyncResult:
     product_saleor_id = await binding_repo.find_saleor_id(_TMPL, template_id)
     if product_saleor_id is None:
-        # Шаблон ещё не синкнут (template-sync создаёт продукт первым) — не ошибка.
+        # Template not synced yet (template-sync creates the product first) — not an error.
         return SyncResult(ok=True, odoo_id=template_id, message="no product binding — skipped")
 
     desired = await variant_adapter.fetch_variants_for_template(odoo, template_id)
-    # Guard: 0 активных Odoo-вариантов (data anomaly / все архивированы) → НЕ трогаем
-    # Saleor. Иначе пустой desired удалил бы рабочий dummy-вариант (S7 regression).
-    # Архивацию продукта целиком обрабатывает sync_product_to_saleor (unpublish).
+    # Guard: 0 active Odoo variants (data anomaly / all archived) → do NOT touch
+    # Saleor. Otherwise an empty desired set would delete the working dummy variant (S7 regression).
+    # Archiving the whole product is handled by sync_product_to_saleor (unpublish).
     if not desired:
         log.info("template_variants_skip_empty", template_id=template_id)
         return SyncResult(ok=True, odoo_id=template_id, message="no active variants — Saleor untouched")
@@ -80,12 +80,12 @@ async def sync_template_variants_to_saleor(
 
     counts = {"create": 0, "keep": 0, "delete": 0}
 
-    # keep: adopt/update по одному (ensure_variant сам решит adopt vs price-update).
+    # keep: adopt/update one at a time (ensure_variant itself decides adopt vs price-update).
     for v in diff.keep:
         await ensure_variant(client, binding_repo, v, product_saleor_id, current, channel_id=channel_id)
         counts["keep"] += 1
 
-    # create: bulk одним вызовом (ADR-0024: bulk для генерации набора).
+    # create: bulk in one call (ADR-0024: bulk for generating the set).
     if diff.create:
         bulk_input = []
         for v in diff.create:
@@ -97,7 +97,7 @@ async def sync_template_variants_to_saleor(
             await binding_repo.upsert_out(_VARIANT, saleor_id, int(v.external_id), state="synced")
             counts["create"] += 1
 
-    # delete: лишние Saleor-варианты (dummy после появления реальных, ADR-0025).
+    # delete: stale Saleor variants (dummy after real ones appear, ADR-0025).
     for vid in diff.delete.values():
         await vm.delete_variant(client, vid)
         await binding_repo.delete_by_saleor_id(_VARIANT, vid)

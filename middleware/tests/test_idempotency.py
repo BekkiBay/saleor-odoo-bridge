@@ -21,7 +21,7 @@ def test_make_key_differs_by_event():
 
 
 class _FakeRedis:
-    """Минимальный fake: SET NX semantics."""
+    """Minimal fake: SET NX semantics."""
 
     def __init__(self):
         self.store: dict[str, str] = {}
@@ -44,8 +44,8 @@ async def test_first_call_not_duplicate_second_is():
     first = await already_processed(client, key)
     second = await already_processed(client, key)
 
-    assert first is False   # первый раз — новый
-    assert second is True   # второй раз — duplicate
+    assert first is False   # first time — new
+    assert second is True   # second time — duplicate
 
 
 @pytest.mark.asyncio

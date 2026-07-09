@@ -77,11 +77,11 @@
         <field name="search_view_id" ref="saleor_outbox_view_search"/>
         <field name="help" type="html">
             <p class="o_view_nocontent_smiling_face">
-                Outbound события Odoo → Saleor (audit).
+                Outbound events Odoo → Saleor (audit).
             </p>
             <p>
-                Каждое create/write product.template и product.category пишет сюда
-                запись + результат POST в middleware (Phase 3.2).
+                Every create/write on product.template and product.category writes
+                a record here, along with the result of the POST to the middleware.
             </p>
         </field>
     </record>

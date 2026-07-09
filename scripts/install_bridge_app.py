@@ -1,32 +1,42 @@
 #!/usr/bin/env python3
-"""Установить (persistent) Saleor App «Justix Odoo Sync» с правами на каталог.
+"""Install the persistent Saleor App used by the bridge, with catalog permissions.
 
-Нужен для reverse flow (Phase 3.2): middleware дергает Saleor мутации
-(productCreate и т.д.) под токеном этого App. Токен Saleor POST'ит на
-{public_url}/api/register → middleware кладёт в Redis APL, откуда его берут
-worker и CLI (см. adapters/saleor/factory.py).
+Needed for the Odoo→Saleor direction: the middleware calls Saleor mutations
+(productCreate and friends) with this App's token. Saleor POSTs the token to
+{public_url}/api/register → the middleware stores it in the Redis APL, where the
+worker and the CLI read it from (see adapters/saleor/factory.py).
 
     python scripts/install_bridge_app.py            # install / reinstall
-    python scripts/install_bridge_app.py --keep     # не удалять прежний одноимённый
+    python scripts/install_bridge_app.py --keep     # keep an existing app of the same name
 
-Предусловия:
-- middleware up, BRIDGE_MIDDLEWARE_PUBLIC_URL=http://host.docker.internal:8080
-  (чтобы Saleor достучался до /api/manifest и /api/register).
-- Saleor стек на :8000, admin admin@example.com/admin.
+Preconditions:
+- The middleware is up and BRIDGE_MIDDLEWARE_PUBLIC_URL is reachable from Saleor
+  (so it can fetch /api/manifest and call /api/register).
+- Your Saleor instance is reachable, and you have staff credentials for it.
+
+Configuration (all optional, via environment):
+    SALEOR_GQL_URL, BRIDGE_MIDDLEWARE_PUBLIC_URL, BRIDGE_APP_NAME,
+    SALEOR_ADMIN_EMAIL, SALEOR_ADMIN_PASSWORD
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
+from pathlib import Path
 
 import requests
+from dotenv import load_dotenv
 
-SALEOR_GQL = "http://localhost:8000/graphql/"
-MANIFEST_URL = "http://host.docker.internal:8080/api/manifest"
-APP_NAME = "Justix Odoo Sync"
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+
+SALEOR_GQL = os.environ.get("SALEOR_GQL_URL", "http://localhost:8000/graphql/")
+_PUBLIC_URL = os.environ.get("BRIDGE_MIDDLEWARE_PUBLIC_URL", "http://host.docker.internal:8080")
+MANIFEST_URL = f"{_PUBLIC_URL.rstrip('/')}/api/manifest"
+APP_NAME = os.environ.get("BRIDGE_APP_NAME", "Saleor Odoo Sync")
 PERMISSIONS = [
     "MANAGE_PRODUCTS",
     "MANAGE_PRODUCT_TYPES_AND_ATTRIBUTES",
@@ -34,8 +44,8 @@ PERMISSIONS = [
     "MANAGE_ORDERS",
     "MANAGE_USERS",
 ]
-ADMIN_EMAIL = "admin@example.com"
-ADMIN_PASSWORD = "admin"
+ADMIN_EMAIL = os.environ.get("SALEOR_ADMIN_EMAIL", "admin@example.com")
+ADMIN_PASSWORD = os.environ.get("SALEOR_ADMIN_PASSWORD", "admin")
 
 
 def gql(query: str, token: str | None = None, variables: dict | None = None) -> dict:

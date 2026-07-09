@@ -1,4 +1,4 @@
-"""Negative stock в Odoo → 0 в Saleor (hardening S3, ADR-0016)."""
+"""Negative stock in Odoo → 0 in Saleor (hardening S3, ADR-0016)."""
 
 from __future__ import annotations
 
@@ -25,8 +25,8 @@ async def test_aggregate_negative_clamps_on_push():
         quants=[{"quantity": -3.0, "product_id": [5, "X"]}],
     )
     levels = await fetch_aggregated_stock(odoo, 5, _WH, safety_buffer=1)
-    assert levels[0].raw_quantity == -3   # сырое значение сохраняем
-    assert levels[0].display_quantity == 0  # в Saleor уходит 0, не ошибка
+    assert levels[0].raw_quantity == -3   # raw value preserved
+    assert levels[0].display_quantity == 0  # 0 goes to Saleor, not an error
 
 
 @pytest.mark.asyncio

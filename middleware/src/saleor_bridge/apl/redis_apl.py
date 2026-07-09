@@ -1,4 +1,4 @@
-"""Redis-based APL — простая реализация без TTL (токены долгоживущие)."""
+"""Redis-based APL — a simple implementation without TTL (tokens are long-lived)."""
 
 from __future__ import annotations
 

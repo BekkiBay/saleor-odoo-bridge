@@ -1,4 +1,4 @@
-"""Read product.template из Odoo (JSON-2) → domain.Product.
+"""Read product.template from Odoo (JSON-2) → domain.Product.
 
 Also provides resolve_shipping_product for P0 order financials (shipping line).
 """
@@ -45,7 +45,7 @@ def _m2o_id(value) -> int | None:
 
 
 def _money(value) -> Decimal:
-    """Odoo float price → Decimal с 2 знаками (см. подводные камни: precision)."""
+    """Odoo float price → Decimal with 2 digits (watch out for precision pitfalls)."""
     return Decimal(str(value or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
@@ -86,8 +86,8 @@ async def fetch_product_image(odoo: OdooClient, odoo_id: int) -> bytes | None:
 
 
 async def list_active_product_ids(odoo: OdooClient) -> list[int]:
-    # sale_ok=True исключает не-витринные товары (напр. service-продукт «доставка»,
-    # который добавляет модуль stock_delivery, Phase 3.4) — в каталог Saleor он не идёт.
+    # sale_ok=True excludes non-storefront products (e.g. the "shipping" service
+    # product added by the stock_delivery module) — those don't go into the Saleor catalog.
     return await odoo.search(_MODEL, [("active", "=", True), ("sale_ok", "=", True)])
 
 

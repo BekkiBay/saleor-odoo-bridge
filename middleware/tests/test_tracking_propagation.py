@@ -1,4 +1,4 @@
-"""Tracking number из picking → OrderFulfillInput.trackingNumber (ADR-0019)."""
+"""Tracking number from picking → OrderFulfillInput.trackingNumber (ADR-0019)."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Shared fixtures для unit-тестов."""
+"""Shared fixtures for unit tests."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ def _uint_b64(n: int) -> str:
 
 @pytest.fixture(scope="session")
 def rsa_keypair() -> tuple[rsa.RSAPrivateKey, dict]:
-    """RSA private key + соответствующий JWKS (формат как у Saleor)."""
+    """RSA private key + a matching JWKS (Saleor's format)."""
     private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     pub = private_key.public_key().public_numbers()
     jwks = {
@@ -42,11 +42,11 @@ def rsa_keypair() -> tuple[rsa.RSAPrivateKey, dict]:
 
 @pytest.fixture
 def sign_payload(rsa_keypair):
-    """Возвращает (raw_body) -> Saleor-style detached JWS заголовок `<protected>..<sig>`.
+    """Returns (raw_body) -> a Saleor-style detached JWS header `<protected>..<sig>`.
 
-    Воспроизводит ИМЕННО формат Saleor: RFC 7797 c `b64:false` (crit=["b64"]),
-    signing input = `<protected>.<RAW body>` (payload НЕ base64), а в самом JWS
-    payload пустой (detached). Это то, что реально приходит в Saleor-Signature.
+    Reproduces Saleor's format EXACTLY: RFC 7797 with `b64:false` (crit=["b64"]),
+    signing input = `<protected>.<RAW body>` (payload NOT base64), and the JWS
+    payload itself is empty (detached). This is what actually arrives in Saleor-Signature.
     """
     private_key, _ = rsa_keypair
 

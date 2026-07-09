@@ -24,13 +24,13 @@ def test_basic_mapping():
 
 
 def test_quantity_capped_by_to_fulfill():
-    # Odoo отгрузил 5, но в Saleor к фулфиллу только 3 → берём 3
+    # Odoo shipped 5, but only 3 are up for fulfillment in Saleor → take 3
     lines = build_fulfillment_lines([_ol("L1", "SKU-001", 3)], {"SKU-001": 5}, _WH)
     assert lines[0].quantity == 3
 
 
 def test_skip_already_fulfilled_line():
-    # quantityToFulfill=0 → строка пропускается
+    # quantityToFulfill=0 → the line is skipped
     lines = build_fulfillment_lines([_ol("L1", "SKU-001", 0)], {"SKU-001": 2}, _WH)
     assert lines == []
 

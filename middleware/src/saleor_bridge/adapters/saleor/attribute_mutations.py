@@ -1,8 +1,8 @@
-"""Saleor Attribute / AttributeValue мутации (Phase 3.5). Pure GraphQL; binding — в usecase.
+"""Saleor Attribute / AttributeValue mutations. Pure GraphQL; binding lives in the usecase.
 
-ADR-0023: все атрибуты — variant-атрибуты единственного "Generic" ProductType.
-ADR-0027: только inputType DROPDOWN, type PRODUCT, valueRequired=false (single-variant
-продукты держат варианты без значений атрибутов).
+ADR-0023: all attributes are variant attributes of the single "Generic" ProductType.
+ADR-0027: only inputType DROPDOWN, type PRODUCT, valueRequired=false (single-variant
+products hold variants without attribute values).
 """
 
 from __future__ import annotations
@@ -78,7 +78,7 @@ mutation($id: ID!, $input: ProductTypeInput!){
 async def ensure_attribute(
     client: SaleorClient, binding_repo: BindingRepository, attribute: Attribute
 ) -> str:
-    """Saleor Attribute id для Odoo product.attribute. Get-or-create, идемпотентно."""
+    """Saleor Attribute id for an Odoo product.attribute. Get-or-create, idempotent."""
     odoo_id = int(attribute.external_id)
     cached = await binding_repo.find_saleor_id(_ATTR_MODEL, odoo_id)
     if cached:
@@ -92,8 +92,8 @@ async def ensure_attribute(
             log.info("attribute_found", name=attribute.name, saleor_id=saleor_id)
             return saleor_id
 
-    # slug глобально уникален; demo-данные Saleor могут занять базовый slug —
-    # на коллизии ретраим с суффиксом odoo_id (детерминированно уникален).
+    # slug is globally unique; Saleor demo data may already occupy the base slug —
+    # on collision we retry with an odoo_id suffix (deterministically unique).
     base_slug = slugify(attribute.name)
     base_input = {
         "name": attribute.name,
@@ -124,7 +124,7 @@ async def ensure_attribute_value(
     attribute_saleor_id: str,
     value: AttributeValue,
 ) -> str:
-    """Saleor AttributeValue id для Odoo product.attribute.value. Get-or-create."""
+    """Saleor AttributeValue id for an Odoo product.attribute.value. Get-or-create."""
     odoo_id = int(value.external_id)
     cached = await binding_repo.find_saleor_id(_VALUE_MODEL, odoo_id)
     if cached:
@@ -151,7 +151,7 @@ async def ensure_attribute_value(
 
 
 async def ensure_product_type_has_variants(client: SaleorClient, product_type_id: str) -> None:
-    """Включить hasVariants на "Generic" ProductType (нужно для variant-атрибутов)."""
+    """Enable hasVariants on the "Generic" ProductType (needed for variant attributes)."""
     data = await query_data(client, _PRODUCT_TYPE_ATTRS, {"id": product_type_id})
     if (data.get("productType") or {}).get("hasVariants"):
         return
@@ -166,7 +166,7 @@ async def ensure_product_type_has_variants(client: SaleorClient, product_type_id
 async def assign_attribute_to_product_type(
     client: SaleorClient, attribute_saleor_id: str, product_type_id: str
 ) -> None:
-    """Привязать атрибут к ProductType как VARIANT-атрибут. Идемпотентно (skip если есть)."""
+    """Attach an attribute to a ProductType as a VARIANT attribute. Idempotent (skips if already assigned)."""
     data = await query_data(client, _PRODUCT_TYPE_ATTRS, {"id": product_type_id})
     assigned = {a["id"] for a in (data.get("productType") or {}).get("variantAttributes", [])}
     if attribute_saleor_id in assigned:

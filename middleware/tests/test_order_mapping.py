@@ -7,7 +7,6 @@ from decimal import Decimal
 from saleor_bridge.adapters.saleor.order_mapper import extract_order, saleor_order_to_order
 from saleor_bridge.domain.enums import OrderStatus
 
-
 ORDER_PAYLOAD = {
     "event": {
         "order": {
@@ -28,7 +27,7 @@ ORDER_PAYLOAD = {
                 "country": {"code": "UZ"},
             },
             "lines": [
-                {"productName": "Платье", "variantName": "M", "productSku": "SKU-001",
+                {"productName": "Dress", "variantName": "M", "productSku": "SKU-001",
                  "quantity": 2, "unitPrice": {"gross": {"amount": "450000", "currency": "UZS"}},
                  "variant": {"id": "x", "sku": "SKU-001"}},
             ],
@@ -107,18 +106,18 @@ def test_order_map_explicit_null_optional_strings():
 
 
 def test_order_map_synthetic_phone_email():
-    """Phone-login shoppers carry a synthetic "<phone>@phone.justix.local" email.
+    """Phone-login shoppers carry a synthetic "<phone>@phone.example.local" email.
     ".local" is a reserved TLD that EmailStr rejects — the domain Order must accept
     it (plain str) so the order still syncs to Odoo (regression: whole sync dropped)."""
     payload = {"event": {"order": {
         "id": "T3JkZXI6MTAx", "number": "1101",
-        "userEmail": "998901112233@phone.justix.local",
+        "userEmail": "998901112233@phone.example.local",
         "lines": [],
         "total": {"gross": {"amount": "0", "currency": "UZS"}},
     }}}
     so = extract_order(payload)
     order = saleor_order_to_order(so, status=OrderStatus.DRAFT)  # must not raise
-    assert order.customer_email == "998901112233@phone.justix.local"
+    assert order.customer_email == "998901112233@phone.example.local"
 
 
 def test_sku_fallback_to_variant():

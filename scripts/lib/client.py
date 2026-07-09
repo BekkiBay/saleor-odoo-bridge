@@ -1,7 +1,7 @@
-"""Тонкая обёртка над odoorpc + helpers для нечего-делать в JSON-RPC API.
+"""Thin wrapper around odoorpc plus helpers for what the JSON-RPC API cannot do.
 
-Управление БД (drop/create/list) идёт через web-endpoints /web/database/*,
-а не через JSON-RPC — поэтому работаем с requests параллельно.
+Database management (drop/create/list) goes through the /web/database/* web
+endpoints rather than JSON-RPC, so we drive those with `requests` alongside.
 """
 
 from __future__ import annotations
@@ -23,6 +23,10 @@ class Config:
     admin_user_password: str
     master_password: str
     company_name: str
+    currency_code: str
+    country_code: str
+    timezone: str
+    lang: str
 
     @property
     def host(self) -> str:
@@ -41,7 +45,7 @@ class Config:
 
 
 def load_config() -> Config:
-    """Читает конфиг из окружения (предполагается, что .env уже загружен)."""
+    """Read the config from the environment (assumes .env is already loaded)."""
     required = [
         "ODOO_URL",
         "ODOO_DB_NAME",
@@ -51,7 +55,7 @@ def load_config() -> Config:
     ]
     missing = [k for k in required if not os.environ.get(k)]
     if missing:
-        print(f"ERROR: в .env не хватает переменных: {', '.join(missing)}", file=sys.stderr)
+        print(f"ERROR: missing variables in .env: {', '.join(missing)}", file=sys.stderr)
         sys.exit(1)
 
     return Config(
@@ -60,20 +64,24 @@ def load_config() -> Config:
         admin_login=os.environ["ODOO_ADMIN_LOGIN"],
         admin_user_password=os.environ["ODOO_ADMIN_USER_PASSWORD"],
         master_password=os.environ["ODOO_ADMIN_PASSWORD"],
-        company_name=os.environ.get("ODOO_COMPANY_NAME", "Marketplace UZ"),
+        company_name=os.environ.get("ODOO_COMPANY_NAME", "My Company"),
+        currency_code=os.environ.get("ODOO_CURRENCY", "USD"),
+        country_code=os.environ.get("ODOO_COUNTRY", "US"),
+        timezone=os.environ.get("ODOO_TIMEZONE", "UTC"),
+        lang=os.environ.get("ODOO_LANG", "en_US"),
     )
 
 
 def connect_odoorpc(cfg: Config, db: str | None = None) -> odoorpc.ODOO:
-    """Создаёт odoorpc-клиент. Если db передана — сразу логинимся."""
+    """Create an odoorpc client. Logs in immediately when `db` is given."""
     odoo = odoorpc.ODOO(cfg.host, protocol=cfg.protocol, port=cfg.port)
     if db:
         try:
             odoo.login(db, cfg.admin_login, cfg.admin_user_password)
         except Exception as e:  # noqa: BLE001
             print(
-                f"ERROR: не получилось залогиниться в {db} как {cfg.admin_login}.\n"
-                f"       Проверь ODOO_ADMIN_LOGIN / ODOO_ADMIN_USER_PASSWORD в .env.\n"
+                f"ERROR: could not log in to {db} as {cfg.admin_login}.\n"
+                f"       Check ODOO_ADMIN_LOGIN / ODOO_ADMIN_USER_PASSWORD in .env.\n"
                 f"       Underlying: {e}",
                 file=sys.stderr,
             )

@@ -1,8 +1,8 @@
-"""Reconcile: сверка остатков Odoo vs Saleor + опциональный auto-fix (ADR-0018).
+"""Reconcile: compares Odoo vs Saleor stock levels + optional auto-fix (ADR-0018).
 
-Дрейф = `saleor_qty != MAX(odoo_raw - buffer, 0)`. Расхождение ровно на buffer —
-норма (ADR-0016), НЕ дрейф. Чистая diff-логика (`diff_stock`) отделена от I/O
-ради unit-тестов.
+Drift = `saleor_qty != MAX(odoo_raw - buffer, 0)`. A discrepancy of exactly the
+buffer is normal (ADR-0016), NOT drift. The pure diff logic (`diff_stock`) is
+kept separate from I/O for unit testing.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ class ReconcileRow:
     odoo_raw: int
     saleor_qty: int
     expected: int  # MAX(odoo_raw - buffer, 0)
-    diff: int  # saleor_qty - odoo_raw (=-buffer когда консистентно)
+    diff: int  # saleor_qty - odoo_raw (=-buffer when consistent)
     drift: bool
 
 
@@ -38,9 +38,9 @@ def diff_stock(
     saleor_stocks: dict[str, dict],
     warehouse_slug: str,
 ) -> list[ReconcileRow]:
-    """Пара (Odoo агрегат, Saleor остаток) → строки сверки. Чистая функция.
+    """Pair of (Odoo aggregate, Saleor stock) → reconciliation rows. Pure function.
 
-    Варианты, которых нет в Saleor (не из каталога), пропускаем.
+    Variants that aren't in Saleor (not yet in the catalog) are skipped.
     """
     rows: list[ReconcileRow] = []
     for sku, level in sorted(odoo_levels.items()):

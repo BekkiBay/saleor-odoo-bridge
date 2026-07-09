@@ -1,14 +1,14 @@
-"""Usecase: sync одного product.product Odoo → Saleor ProductVariant (Phase 3.5).
+"""Usecase: sync a single product.product from Odoo → Saleor ProductVariant.
 
 Flow (ADR-0024/0026):
-1. product.product → template binding (Saleor product). Нет → CatalogBindingMissing (retry).
-2. Резолв attribute-assignments (PTAV → Saleor AttributeValue ids через binding).
-   Нет binding атрибута → AttributeBindingMissing (retry; attribute-sync идёт первым).
-3. existing variant binding → update (price/barcode); SKU совпал с Saleor-вариантом →
-   ADOPT (миграция dummy-варианта Phase 3.2); иначе CREATE (bulk с inline ценой).
+1. product.product → template binding (Saleor product). None → CatalogBindingMissing (retry).
+2. Resolve attribute assignments (PTAV → Saleor AttributeValue ids via binding).
+   Missing attribute binding → AttributeBindingMissing (retry; attribute-sync runs first).
+3. existing variant binding → update (price/barcode); SKU matches an existing
+   Saleor variant → ADOPT (migrates a legacy dummy variant, ADR-0025); otherwise CREATE (bulk with inline price).
 4. active=False → delete variant + binding (S4).
 
-Реюзабельные helpers (resolve_attribute_input / ensure_variant) шарятся с
+The resolve_attribute_input / ensure_variant helpers are shared with
 sync_template_variants_to_saleor.
 """
 
@@ -35,11 +35,11 @@ _VALUE = "product.attribute.value"
 
 
 class AttributeBindingMissing(RuntimeError):
-    """Attribute/value ещё не синкнут в Saleor — retry (attribute-sync идёт первым)."""
+    """Attribute/value not yet synced to Saleor — retry (attribute-sync runs first)."""
 
 
 async def resolve_attribute_input(binding_repo: BindingRepository, variant: Variant) -> list[dict]:
-    """PTAV-assignments варианта → Saleor variant.attributes input. Raise если binding нет."""
+    """PTAV assignments for a variant → Saleor variant.attributes input. Raises if a binding is missing."""
     out: list[dict] = []
     for a in variant.attributes:
         attr_id = await binding_repo.find_saleor_id(_ATTR, int(a.attribute_external_id))
@@ -53,7 +53,7 @@ async def resolve_attribute_input(binding_repo: BindingRepository, variant: Vari
 
 
 def variant_bulk_input(variant: Variant, channel_id: str, attribute_input: list[dict]) -> dict:
-    """ProductVariantBulkCreateInput с inline channel listing (цена + доступность)."""
+    """ProductVariantBulkCreateInput with an inline channel listing (price + availability)."""
     return {
         "sku": variant.sku,
         "trackInventory": True,
@@ -71,9 +71,9 @@ async def ensure_variant(
     *,
     channel_id: str,
 ) -> str:
-    """Создать/усыновить/обновить ОДИН вариант. Возвращает Saleor variant id.
+    """Create/adopt/update a SINGLE variant. Returns the Saleor variant id.
 
-    `current` — {sku: variant_id} текущих Saleor-вариантов продукта (для adopt).
+    `current` — {sku: variant_id} of the product's existing Saleor variants (for adopt).
     """
     odoo_id = int(variant.external_id)
     existing = await binding_repo.find_saleor_id(_VARIANT, odoo_id)
@@ -83,7 +83,7 @@ async def ensure_variant(
         await binding_repo.upsert_out(_VARIANT, existing, odoo_id, state="synced")
         return existing
 
-    if variant.sku in current:  # adopt существующий Saleor-вариант (миграция dummy, ADR-0025)
+    if variant.sku in current:  # adopt an existing Saleor variant (migrates the legacy dummy variant, ADR-0025)
         adopted = current[variant.sku]
         await binding_repo.upsert_out(_VARIANT, adopted, odoo_id, state="synced")
         await pm.set_variant_price(client, variant_id=adopted, channel_id=channel_id, price=str(variant.price))
@@ -113,8 +113,8 @@ async def sync_variant_to_saleor(
     if variant is None or not variant.template_external_id:
         return SyncResult(ok=False, message=f"variant {pp_id} not found in Odoo")
 
-    # ── archive: variant active=False → delete в Saleor (S4) ──
-    # odoo_id=None сигналит вызывающему «живого варианта нет» → пропустить stock-sync.
+    # ── archive: variant active=False → delete in Saleor (S4) ──
+    # odoo_id=None signals to the caller "no live variant" → skip stock-sync.
     if not variant.active:
         existing = await binding_repo.find_saleor_id(_VARIANT, pp_id)
         if existing:

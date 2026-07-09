@@ -1,4 +1,4 @@
-"""Saleor Category мутации (create/update). Pure GraphQL; binding — в usecase."""
+"""Saleor Category mutations (create/update). Pure GraphQL; binding lives in the usecase."""
 
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ async def create_category(
     parent_saleor_id: str | None,
     suffix_seed: str,
 ) -> str:
-    """Создать категорию; на slug-коллизии повторить с суффиксом suffix_seed."""
+    """Create a category; on a slug collision, retry with the suffix_seed suffix."""
     attempt_slug = slug
     for attempt in range(_MAX_SLUG_RETRY):
         try:
@@ -71,7 +71,7 @@ _PARENT = "query($id: ID!){ category(id:$id){ id parent{ id } } }"
 
 
 async def fetch_parent_id(client: SaleorClient, saleor_id: str) -> str | None:
-    """Текущий parent категории в Saleor (для detect parent-move divergence)."""
+    """Current parent of the category in Saleor (used to detect parent-move divergence)."""
     data = await query_data(client, _PARENT, {"id": saleor_id})
     cat = data.get("category") or {}
     parent = cat.get("parent")

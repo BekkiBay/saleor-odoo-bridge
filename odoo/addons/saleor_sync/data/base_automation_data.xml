@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo noupdate="1">
     <!--
-        Automation rules (Phase 3.2): on create/write product.template и
-        product.category → серверный action диспетчинга в middleware.
+        Automation rules: on create/write of product.template and
+        product.category → a server action dispatches to the middleware.
 
-        Без filter_domain по active: чтобы ловить и архивацию (active=False →
-        unpublish в Saleor). Решение publish/unpublish принимает usecase по
-        product.active.
+        No filter_domain on active: this also catches archiving (active=False
+        → unpublish in Saleor). The publish/unpublish decision is made by the
+        use case based on product.active.
     -->
     <record id="auto_sync_product_template" model="base.automation">
         <field name="name">Sync product to Saleor</field>
@@ -23,9 +23,10 @@
     </record>
 
     <!--
-        Phase 3.3 (ADR-0017): stock.quant create/write → sync остатка.
-        trigger_field_ids УЗКО на `quantity` — НЕ на reserved_quantity (Saleor сам
-        трекает свой reserved; иначе резерв триггерил бы sync, лишний шум/петля).
+        ADR-0017: stock.quant create/write → sync stock level.
+        trigger_field_ids is narrowly scoped to `quantity` — NOT to
+        reserved_quantity (Saleor tracks its own reservations; otherwise a
+        reservation would trigger a sync, causing extra noise/a loop).
     -->
     <record id="auto_sync_stock_quant" model="base.automation">
         <field name="name">Sync stock to Saleor</field>
@@ -36,12 +37,14 @@
     </record>
 
     <!--
-        Phase 3.4 (ADR-0019): sale.order/picking state changes → Saleor.
-        on_create_or_write + trigger_field=[state] (а не on_state_set): фитит
-        ИМЕННО запись поля state (не шумно), но без привязки к одному target-value
-        (on_state_set требует trg_selection_field_id на конкретное значение). Все
-        переходы ловит один rule, решение принимает worker (как в stock-flow 3.3).
-        Шум доп. отфильтрован в server action (значимые states + наличие binding).
+        ADR-0019: sale.order/picking state changes → Saleor.
+        on_create_or_write + trigger_field=[state] (rather than on_state_set):
+        this matches EXACTLY a write of the state field (not noisy), without
+        being tied to a single target value (on_state_set requires a
+        trg_selection_field_id pinned to a specific value). One rule catches
+        all transitions; the worker makes the decision (as in the stock-sync
+        flow above). Noise is further filtered in the server action
+        (meaningful states + presence of a binding).
     -->
     <record id="auto_sync_sale_order_state" model="base.automation">
         <field name="name">Sync sale.order state to Saleor</field>
@@ -52,17 +55,17 @@
     </record>
 
     <!--
-        Unified status (spec 2026-06-22): fire the SAME dispatch when the
-        canonical justix_status changes. Critical for the manual "delivered"
-        tick (changes no native state). Reuses action_webhook_sale_order_state;
-        the sale.order worker branch pushes canonical metadata alongside the
+        Unified status: fire the SAME dispatch when the canonical
+        fulfillment_status changes. Critical for the manual "delivered" tick
+        (changes no native state). Reuses action_webhook_sale_order_state; the
+        sale.order worker branch pushes canonical metadata alongside the
         (idempotent) state sync. Same 5s dedup bucket → ≤1 job per order.
     -->
-    <record id="auto_sync_sale_order_justix_status" model="base.automation">
-        <field name="name">Sync sale.order justix_status to Saleor</field>
+    <record id="auto_sync_sale_order_fulfillment_status" model="base.automation">
+        <field name="name">Sync sale.order fulfillment_status to Saleor</field>
         <field name="model_id" ref="sale.model_sale_order"/>
         <field name="trigger">on_create_or_write</field>
-        <field name="trigger_field_ids" eval="[(6, 0, [ref('saleor_sync.field_sale_order__justix_status')])]"/>
+        <field name="trigger_field_ids" eval="[(6, 0, [ref('saleor_sync.field_sale_order__fulfillment_status')])]"/>
         <field name="action_server_ids" eval="[(4, ref('action_webhook_sale_order_state'))]"/>
     </record>
 
@@ -75,9 +78,9 @@
     </record>
 
     <!--
-        Phase 3.5 (ADR-0023/0027): атрибуты и значения → Saleor.
-        trigger_field_ids узко на пользовательски-значимых полях (name + тип/цвет),
-        чтобы не шуметь на служебных пересчётах.
+        ADR-0023/0027: attributes and their values → Saleor.
+        trigger_field_ids is narrowly scoped to user-meaningful fields (name +
+        type/color), to avoid noise from internal recomputations.
     -->
     <record id="auto_sync_product_attribute" model="base.automation">
         <field name="name">Sync attribute to Saleor</field>
@@ -102,9 +105,10 @@
     </record>
 
     <!--
-        Phase 3.5 (ADR-0024): product.product (variant) изменения.
-        trigger_field_ids: default_code (SKU) / barcode / active. БЕЗ lst_price —
-        оно non-stored compute (нельзя триггерить); цены идут через template + PTAV.
+        ADR-0024: product.product (variant) changes.
+        trigger_field_ids: default_code (SKU) / barcode / active. WITHOUT
+        lst_price — it is a non-stored compute field (cannot be a trigger);
+        prices flow through the template + PTAV instead.
     -->
     <record id="auto_sync_product_product" model="base.automation">
         <field name="name">Sync variant to Saleor</field>
@@ -119,8 +123,9 @@
     </record>
 
     <!--
-        Phase 3.5 (ADR-0026): PTAV.price_extra → ре-синк цен вариантов шаблона.
-        Источник вариантной надбавки; lst_price на варианте non-stored.
+        ADR-0026: PTAV.price_extra → re-sync template variant prices.
+        Source of the per-variant surcharge; lst_price on the variant is
+        non-stored.
     -->
     <record id="auto_sync_ptav_price" model="base.automation">
         <field name="name">Sync PTAV price to Saleor</field>

@@ -1,8 +1,8 @@
 """Usecase: sync product.template Odoo → Saleor (reverse flow).
 
-1 product → 1 product + 1 dummy variant (ADR-0012), без stock (ADR-0014).
-Idempotent через saleor.binding. Divergence detection per ADR-0006 (Odoo wins).
-channel_id и product_type_id резолвит вызывающий (task / bulk_seed).
+1 product → 1 product + 1 dummy variant (ADR-0012), no stock (ADR-0014).
+Idempotent via saleor.binding. Divergence detection per ADR-0006 (Odoo wins).
+channel_id and product_type_id are resolved by the caller (task / bulk_seed).
 """
 
 from __future__ import annotations
@@ -35,10 +35,10 @@ def _metadata(product) -> dict[str, str]:
 
 
 async def _log_divergence(odoo: OdooClient, odoo_id: int, saleor_name: str, odoo_name: str) -> None:
-    """Записать в chatter product.template (ADR-0006). Best-effort."""
+    """Post to the product.template chatter (ADR-0006). Best-effort."""
     body = (
-        f"⚠️ Saleor divergence: имя в Saleor было изменено вручную на "
-        f"'{saleor_name}'. Перезаписано значением из Odoo '{odoo_name}' "
+        f"⚠️ Saleor divergence: the name in Saleor had been edited manually to "
+        f"'{saleor_name}'. It was overwritten with the Odoo value '{odoo_name}' "
         f"(ADR-0006: Odoo wins)."
     )
     try:
@@ -63,7 +63,7 @@ async def sync_product_to_saleor(
 
     existing = await binding_repo.find_saleor_id(_MODEL, odoo_id)
 
-    # ── archive: inactive product → unpublish (ADR подводные камни) ──
+    # ── archive: inactive product → unpublish ──
     if not product.active:
         if existing:
             await pm.set_product_published(client, product_id=existing, channel_id=channel_id, published=False)
@@ -106,7 +106,7 @@ async def sync_product_to_saleor(
             client, existing, name=product.name, category_id=cat_saleor_id,
             description=product.description, metadata=meta,
         )
-        # Publish ДО set_variant_price (иначе PRODUCT_NOT_ASSIGNED_TO_CHANNEL).
+        # Publish BEFORE set_variant_price (otherwise PRODUCT_NOT_ASSIGNED_TO_CHANNEL).
         await pm.set_product_published(client, product_id=existing, channel_id=channel_id, published=True)
         # Image: re-sync only when checksum changed (handles add/replace/remove).
         if img_sha != old_sha:
@@ -114,7 +114,7 @@ async def sync_product_to_saleor(
             if img_bytes:
                 await pm.create_product_media(client, product_id=existing, content=img_bytes)
             log.info("product_image_synced", odoo_id=odoo_id, saleor_id=existing, has_image=bool(img_bytes))
-        # Multi-variant: варианты/цены owns sync_template_variants_to_saleor (Phase 3.5).
+        # Multi-variant: variants/prices are owned by sync_template_variants_to_saleor.
         if not product.has_variants:
             variants = (state or {}).get("variants") or []
             variant_id = variants[0]["id"] if variants else await pm.create_variant(
@@ -132,12 +132,12 @@ async def sync_product_to_saleor(
         category_id=cat_saleor_id, description=product.description, metadata=meta,
         suffix_seed=product.external_id,
     )
-    # Publish ДО set_variant_price (иначе PRODUCT_NOT_ASSIGNED_TO_CHANNEL).
+    # Publish BEFORE set_variant_price (otherwise PRODUCT_NOT_ASSIGNED_TO_CHANNEL).
     await pm.set_product_published(client, product_id=product_id, channel_id=channel_id, published=True)
     if img_bytes:
         await pm.create_product_media(client, product_id=product_id, content=img_bytes)
         log.info("product_image_synced", odoo_id=odoo_id, saleor_id=product_id, has_image=True)
-    # Single-variant: dummy variant тут; multi-variant — reconcile (Phase 3.5).
+    # Single-variant: dummy variant created here; multi-variant — reconcile.
     if not product.has_variants:
         variant_id = await pm.create_variant(client, product_id=product_id, sku=product.sku)
         await pm.set_variant_price(client, variant_id=variant_id, channel_id=channel_id, price=price)

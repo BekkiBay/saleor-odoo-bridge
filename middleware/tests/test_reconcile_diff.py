@@ -1,4 +1,4 @@
-"""Drift detection в reconcile (ADR-0018). Чистая diff_stock — без I/O."""
+"""Drift detection in reconcile (ADR-0018). Pure diff_stock — no I/O."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ def _lvl(sku: str, raw: int, buffer: int = 1) -> StockLevel:
 
 
 def test_buffer_diff_is_not_drift():
-    # Odoo 12, buffer 1 → expected 11. Saleor 11 → OK (diff -1 норма).
+    # Odoo 12, buffer 1 → expected 11. Saleor 11 → OK (diff -1 is normal).
     rows = diff_stock(
         {"SKU-001": _lvl("SKU-001", 12)},
         {"SKU-001": {"variant_id": "V1", "total": 11, "track": True}},
@@ -40,7 +40,7 @@ def test_real_drift_detected():
 
 
 def test_inflated_saleor_is_drift():
-    # Saleor вручную задрали до 999 (hardening S5) → DRIFT.
+    # Saleor manually bumped to 999 (hardening S5) → DRIFT.
     rows = diff_stock(
         {"SKU-009": _lvl("SKU-009", 10)},
         {"SKU-009": {"variant_id": "V9", "total": 999, "track": True}},

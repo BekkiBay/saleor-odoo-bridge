@@ -1,45 +1,45 @@
-# ADR-0002: Тонкий собственный Saleor App без SDK
+# ADR-0002: A thin custom Saleor App without an SDK
 
 ## Status
 Accepted (2026-05-21)
 
 ## Context
 
-Связано с [ADR-0001](0001-python-middleware.md). После выбора Python остаётся вопрос: использовать `mirumee/saleor-app-framework-python` или писать самим.
+Related to [ADR-0001](0001-python-middleware.md). After choosing Python, the question remains: use `mirumee/saleor-app-framework-python` or write it ourselves.
 
-Saleor App framework делает три вещи:
-1. **Manifest serving** — endpoint возвращает JSON по схеме Saleor.
-2. **Token exchange** — приём `POST /api/register` с `auth_token` и `saleor_domain`, persist в APL.
-3. **Webhook signature verification** — JWS RS256 detached, public key из JWKS.
+The Saleor App framework does three things:
+1. **Manifest serving** — an endpoint that returns JSON matching Saleor's schema.
+2. **Token exchange** — accepting `POST /api/register` with `auth_token` and `saleor_domain`, and persisting it in the APL.
+3. **Webhook signature verification** — JWS RS256 detached, with the public key from JWKS.
 
-Каждое — небольшой объём кода (50-200 LOC).
+Each of these is a small amount of code (50-200 LOC).
 
 ## Decision
 
-Не использовать никакой Saleor App SDK. Реализуем три компонента сами:
+We don't use any Saleor App SDK. We implement all three components ourselves:
 
-1. **Manifest** — pydantic-модель с `model_dump()`, jinja-style substitution `{public_url}` через `Settings.middleware_public_url`.
-2. **Token exchange** — простой FastAPI endpoint, `await apl.set("app:" + domain, token)`.
-3. **JWS verification** — `joserfc.jws.deserialize_compact(raw_body, key=jwks)` где `jwks` фетчим из `{saleor_url}/.well-known/jwks.json` и кэшируем 1 час.
+1. **Manifest** — a pydantic model with `model_dump()`, jinja-style substitution of `{public_url}` via `Settings.middleware_public_url`.
+2. **Token exchange** — a simple FastAPI endpoint, `await apl.set("app:" + domain, token)`.
+3. **JWS verification** — `joserfc.jws.deserialize_compact(raw_body, key=jwks)`, where `jwks` is fetched from `{saleor_url}/.well-known/jwks.json` and cached for 1 hour.
 
-APL — abstract base class + Redis implementation (~50 LOC).
+APL is an abstract base class plus a Redis implementation (~50 LOC).
 
 ## Alternatives considered
 
-1. **`mirumee/saleor-app-framework-python`.** "Still in development". Брать на production-критический путь — риск. См. ADR-0001.
-2. **Опираться на `@saleor/app-sdk` через Python ↔ Node bridge.** Дико, не рассматривали серьёзно.
+1. **`mirumee/saleor-app-framework-python`.** "Still in development." Too risky for a production-critical path. See ADR-0001.
+2. **Relying on `@saleor/app-sdk` via a Python ↔ Node bridge.** Impractical, not seriously considered.
 
 ## Consequences
 
 **Pros:**
-- Полный контроль, минимум зависимостей.
-- Можем добавить кастомную observability (structlog с trace_id на каждом шаге).
-- Easy testing — никаких mock'ов SDK, всё реальные unit-тесты.
+- Full control, minimal dependencies.
+- We can add custom observability (structlog with a trace_id on every step).
+- Easy testing — no SDK mocks, all real unit tests.
 
 **Cons:**
-- При изменениях Saleor signature scheme (например, в 4.0) нужно патчить руками. В SDK это бы делалось автообновлением.
-- Нужно знать spec — описывать тестируемое поведение в комментариях кода.
+- If Saleor changes its signature scheme (e.g., in 4.0), we need to patch it by hand. An SDK would pick this up via auto-update.
+- We need to know the spec ourselves — the expected behavior has to be documented in code comments.
 
-**Mitigation:** покрыть signature verification unit-тестами с реальными JWS payloads (помещаем в `tests/fixtures/`). Если Saleor сменит схему — тесты упадут, не production.
+**Mitigation:** cover signature verification with unit tests using real JWS payloads (stored in `tests/fixtures/`). If Saleor changes its scheme, the tests fail — not production.
 
-**Fallback на HMAC-SHA256.** В spec Phase 3.0 сказано: если у Saleor instance включён `secretKey` (legacy mode, deprecated в Saleor 4.0) — поддержать как fallback. Реализация: если в headers есть `Saleor-HMAC-SHA256` и нет `Saleor-Signature` — verify через HMAC-SHA256 с secret из env. Решение: реализуем only JWS в Phase 3.0, HMAC fallback отложен (наш Saleor 3.23 поддерживает JWS).
+**Fallback to HMAC-SHA256.** The original design spec called for a fallback: if a Saleor instance has `secretKey` enabled (legacy mode, deprecated in Saleor 4.0), it should be supported as a fallback. Implementation: if the `Saleor-HMAC-SHA256` header is present and `Saleor-Signature` is absent, verify via HMAC-SHA256 with a secret from the environment. Decision: only JWS is implemented for now; the HMAC fallback is deferred (our Saleor 3.23 instance supports JWS).

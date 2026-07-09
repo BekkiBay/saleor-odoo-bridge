@@ -1,4 +1,4 @@
-"""Singleton ProductType "Generic" (ADR-0012). Get-or-create, кэш в saleor.binding."""
+"""Singleton ProductType "Generic" (ADR-0012). Get-or-create, cached in saleor.binding."""
 
 from __future__ import annotations
 
@@ -34,13 +34,13 @@ async def ensure_product_type(
     binding_repo: BindingRepository,
     name: str,
 ) -> str:
-    """Вернуть Saleor ProductType id, создав при необходимости. Идемпотентно."""
-    # 1. binding-кэш
+    """Return the Saleor ProductType id, creating it if needed. Idempotent."""
+    # 1. binding cache
     cached = await binding_repo.find_saleor_id(_BINDING_MODEL, 0)
     if cached:
         return cached
 
-    # 2. поиск по имени в Saleor
+    # 2. search by name in Saleor
     data = await query_data(client, _FIND, {"search": name})
     for edge in data.get("productTypes", {}).get("edges", []):
         node = edge["node"]
@@ -49,7 +49,7 @@ async def ensure_product_type(
             log.info("product_type_found", name=name, saleor_id=node["id"])
             return node["id"]
 
-    # 3. создать
+    # 3. create
     payload = await run_mutation(
         client,
         _CREATE,

@@ -28,10 +28,10 @@ def _addr_to_domain(a: SaleorAddress | None, *, billing: bool, shipping: bool) -
 
 
 def extract_user(payload: dict[str, Any]) -> SaleorUser:
-    """Достать user-объект из webhook payload.
+    """Extract the user object from the webhook payload.
 
     Subscription payload: {"event": {"user": {...}}}.
-    Legacy payload: прямой user объект {...}.
+    Legacy payload: a direct user object {...}.
     """
     data = payload
     if "event" in payload and isinstance(payload["event"], dict):

@@ -1,9 +1,9 @@
-"""Read product.product (variant) из Odoo (JSON-2) → domain.Variant (Phase 3.5).
+"""Read product.product (variant) from Odoo (JSON-2) → domain.Variant.
 
-Цена варианта = lst_price (Odoo считает = template.list_price + sum(PTAV.price_extra),
-ADR-0026) — читаем готовое значение, не суммируем сами. Attribute-assignments
-декодим из product_template_attribute_value_ids (PTAV) → (attribute, value) пары.
-SKU = default_code, fallback odoo-<id> (ADR-0024).
+Variant price = lst_price (Odoo computes it as template.list_price + sum(PTAV.price_extra),
+ADR-0026) — we read the ready-made value, we don't sum it ourselves. Attribute
+assignments are decoded from product_template_attribute_value_ids (PTAV) → (attribute, value)
+pairs. SKU = default_code, fallback odoo-<id> (ADR-0024).
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ def _sku(row: dict) -> str:
 
 
 async def _ptav_map(odoo: OdooClient, ptav_ids: list[int]) -> dict[int, VariantAttributeAssignment]:
-    """PTAV id → assignment (attribute_external_id, value_external_id). Один read."""
+    """PTAV id → assignment (attribute_external_id, value_external_id). A single read."""
     if not ptav_ids:
         return {}
     rows = await odoo.read(_PTAV, ptav_ids, _PTAV_FIELDS)
@@ -79,7 +79,7 @@ async def fetch_variant(odoo: OdooClient, pp_id: int) -> Variant | None:
 
 
 async def fetch_variants_for_template(odoo: OdooClient, template_id: int) -> list[Variant]:
-    """Все активные варианты шаблона. Батч-резолв PTAV (2 read'а суммарно)."""
+    """All active variants of a template. Batch-resolves PTAV (2 reads total)."""
     pp_ids = await odoo.search(_VARIANT, [("product_tmpl_id", "=", template_id), ("active", "=", True)])
     if not pp_ids:
         return []

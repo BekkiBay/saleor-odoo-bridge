@@ -1,44 +1,48 @@
-# ADR-0012: Одна Saleor ProductType "Generic" для всего каталога в Phase 3.2
+# ADR-0012: A single Saleor ProductType "Generic" for the whole catalog
 
 ## Status
-Accepted (2026-05-23) — Phase 3.2
+Accepted (2026-05-23)
 
 ## Context
 
-В Odoo стартовый каталог — 30 **simple products** (`product.template` без
-вариантов/атрибутов). В Saleor товар обязан иметь `ProductType` и хотя бы один
-`ProductVariant` (цена и SKU живут на варианте, не на продукте).
+In Odoo, the initial catalog is 30 **simple products** (`product.template` with no
+variants/attributes). In Saleor, a product must have a `ProductType` and at least one
+`ProductVariant` (price and SKU live on the variant, not the product).
 
-Полноценный маппинг Odoo attributes/values → Saleor variant-attributes — это
-Phase 3.5. В 3.2 он не нужен и только раздул бы код.
+A full mapping of Odoo attributes/values to Saleor variant attributes is a
+significant follow-up piece of work. It isn't needed yet and would only add
+unnecessary complexity right now.
 
 ## Decision
 
-- **Один `ProductType` "Generic"** на весь каталог. Имя берётся из
-  `BRIDGE_SALEOR_PRODUCT_TYPE_NAME` (default `Generic`). Создаётся get-or-create,
-  ID кэшируется в `saleor.binding` (`model_name='product.type'`, `odoo_id=0`).
-- Создаётся **без variant-атрибутов** и без product-атрибутов → у продукта может
-  быть один «пустой» вариант.
-- Каждый Odoo `product.template` → один Saleor `Product` + **один dummy
-  `ProductVariant`** с тем же SKU (`default_code`). Цена и channel-listing — на этом
-  варианте.
+- **A single `ProductType` "Generic"** for the whole catalog. The name comes from
+  `BRIDGE_SALEOR_PRODUCT_TYPE_NAME` (default `Generic`). It's created via
+  get-or-create, with the ID cached in `saleor.binding`
+  (`model_name='product.type'`, `odoo_id=0`).
+- Created **without variant attributes** and without product attributes, so a
+  product can have a single "empty" variant.
+- Each Odoo `product.template` maps to one Saleor `Product` plus **one dummy
+  `ProductVariant`** sharing the same SKU (`default_code`). Price and the channel
+  listing live on that variant.
 - `kind = NORMAL`, `isShippingRequired = true`, `hasVariants = false`.
 
 ## Alternatives considered
 
-- **ProductType per Odoo-категория.** Отброшено: YAGNI, усложняет маппинг без
-  бизнес-ценности в MVP. Категория уже выражается через Saleor `Category`.
-- **Configurable product (variants) сразу.** Отброшено: это Phase 3.5; в Odoo пока
-  нет вариантов для синка.
+- **A ProductType per Odoo category.** Rejected: YAGNI, adds mapping complexity
+  without business value at this stage. The category is already expressed via
+  Saleor's `Category`.
+- **Configurable products (variants) right away.** Rejected: that's a later piece of
+  work; Odoo doesn't yet have variants to sync.
 
 ## Consequences
 
-**Pros:** простой, предсказуемый маппинг 1 product → 1 product + 1 variant. Легко
-менять цену/SKU. Один тип — нет накладных расходов на типы.
+**Pros:** a simple, predictable 1 product → 1 product + 1 variant mapping. Easy to
+change price/SKU. A single type means no overhead for managing multiple types.
 
-**Cons:** когда в Phase 3.5 появятся варианты, продукты, созданные как single-variant
-«Generic», придётся мигрировать на типы с атрибутами (variant id меняется → re-map
-binding). Это известный долг, помечен в Phase 3.5.
+**Cons:** once real variants are introduced, products created as single-variant
+"Generic" products will need to be migrated to types with attributes (the variant ID
+changes, requiring a re-mapped binding). This is a known, deliberately deferred piece
+of debt.
 
-**Supersedes-hint:** при вводе вариантов завести ADR «ProductType per attribute-set»
-со ссылкой `Supersedes ADR-0012`.
+**Supersedes hint:** when variants are introduced, a follow-up ADR "ProductType per
+attribute-set" should reference `Supersedes ADR-0012`.

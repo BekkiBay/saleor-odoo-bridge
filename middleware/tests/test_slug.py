@@ -1,4 +1,4 @@
-"""Slugify + транслитерация (Phase 3.2)."""
+"""Slugify + transliteration tests."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Usecase: sync customer Saleor → Odoo. Platform-independent (берёт domain.Customer)."""
+"""Usecase: sync customer Saleor → Odoo. Platform-independent (operates on domain.Customer)."""
 
 from __future__ import annotations
 

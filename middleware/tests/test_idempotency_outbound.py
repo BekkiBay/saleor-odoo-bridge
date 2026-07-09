@@ -1,7 +1,7 @@
-"""Outbound dedup: повторный webhook для (model, id) → стабильный arq _job_id.
+"""Outbound dedup: a repeated webhook for (model, id) → a stable arq _job_id.
 
-Дедуп самой джобы — ответственность arq (одинаковый _job_id), мы проверяем что
-API даёт детерминированный job_id, по которому arq схлопнет дубли.
+Deduping the job itself is arq's responsibility (same _job_id); we verify that
+the API produces a deterministic job_id that arq can collapse duplicates on.
 """
 
 from __future__ import annotations
@@ -46,7 +46,7 @@ def test_same_record_same_job_id_within_burst(client):
     client.post("/api/odoo-events", params={"secret": _SECRET}, json=body)
     calls = client.app.state.arq_pool.calls
     assert len(calls) == 2
-    # одинаковый bucketed job_id → arq схлопнет дубли в один
+    # same bucketed job_id → arq collapses duplicates into one
     assert calls[0]["job_id"] == calls[1]["job_id"]
     assert calls[0]["job_id"].startswith("odoo:product.template:7:")
 

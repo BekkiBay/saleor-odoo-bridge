@@ -1,9 +1,9 @@
-"""Variant/Attribute domain models (Phase 3.5).
+"""Variant/Attribute domain models.
 
 Odoo product.attribute → Saleor Attribute (DROPDOWN, ADR-0027).
 Odoo product.product → Saleor ProductVariant (SKU = default_code, ADR-0024).
-Цена варианта = template.list_price + PTAV.price_extra (Odoo считает в lst_price,
-ADR-0026). PTAV напрямую НЕ синкаем — используем для резолва attribute values.
+Variant price = template.list_price + PTAV.price_extra (Odoo computes it in lst_price,
+ADR-0026). PTAV is NOT synced directly — it's used to resolve attribute values.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from pydantic import BaseModel
 class AttributeValue(BaseModel):
     external_id: str  # Odoo product.attribute.value id (as string)
     name: str
-    color_hex: str | None = None  # html_color — для swatch, Phase 4 (ADR-0027)
+    color_hex: str | None = None  # html_color — for the color swatch (ADR-0027)
 
 
 class Attribute(BaseModel):
@@ -35,9 +35,9 @@ class VariantAttributeAssignment(BaseModel):
 class Variant(BaseModel):
     external_id: str  # Odoo product.product id (as string)
     template_external_id: str  # Odoo product.template id (as string)
-    sku: str  # default_code — primary key между системами (ADR-0024)
-    price: Decimal  # lst_price (= template.list_price + price_extra), валюта канала
-    cost: Decimal | None = None  # standard_price (не пушим в MVP)
+    sku: str  # default_code — primary key between systems (ADR-0024)
+    price: Decimal  # lst_price (= template.list_price + price_extra), channel currency
+    cost: Decimal | None = None  # standard_price (not pushed in MVP)
     barcode: str | None = None
     attributes: list[VariantAttributeAssignment] = []
     active: bool = True

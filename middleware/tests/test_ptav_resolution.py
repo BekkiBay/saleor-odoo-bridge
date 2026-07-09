@@ -1,7 +1,7 @@
-"""PTAV-assignments варианта → Saleor variant.attributes input (Phase 3.5).
+"""PTAV assignments for a variant → Saleor variant.attributes input.
 
-resolve_attribute_input резолвит (attribute, value) пары через saleor.binding в
-форму [{id, dropdownValue:{id}}]. Нет binding → AttributeBindingMissing (retry).
+resolve_attribute_input resolves (attribute, value) pairs via saleor.binding into
+the form [{id, dropdownValue:{id}}]. Missing binding → AttributeBindingMissing (retry).
 """
 
 from __future__ import annotations
@@ -53,7 +53,7 @@ async def test_missing_value_binding_raises():
         ("product.attribute", 10): "QXR0cmlidXRlOjEw",
         ("product.attribute.value", 100): "QXR0cmlidXRlVmFsdWU6MTAw",
         ("product.attribute", 11): "QXR0cmlidXRlOjEx",
-        # value 110 не синкнут
+        # value 110 not synced
     })
     with pytest.raises(AttributeBindingMissing):
         await resolve_attribute_input(BindingRepository(odoo), _variant())
@@ -61,7 +61,7 @@ async def test_missing_value_binding_raises():
 
 @pytest.mark.asyncio
 async def test_empty_attributes_resolves_empty():
-    # single-variant продукт без атрибутов → пустой input (миграция Phase 3.2)
+    # single-variant product with no attributes → empty input (legacy dummy-variant migration)
     v = Variant(external_id="9", template_external_id="2", sku="SKU-009", price=Decimal("100.00"))
     out = await resolve_attribute_input(BindingRepository(FakeOdoo()), v)
     assert out == []

@@ -1,12 +1,12 @@
-"""Usecase: sync остатка одного product.product Odoo → Saleor (Phase 3.3).
+"""Usecase: sync stock for a single product.product from Odoo → Saleor.
 
 Flow (ADR-0015/0016/0017):
-1. product.product → template_id → catalog-binding (Saleor product). Нет binding →
-   CatalogBindingMissing (race с catalog-sync) → arq retry.
+1. product.product → template_id → catalog-binding (Saleor product). Missing binding →
+   CatalogBindingMissing (race with catalog-sync) → arq retry.
 2. Saleor product → variants[0].id.
 3. ensure default warehouse (get-or-create, ADR-0015).
-4. агрегат остатка из Odoo + safety buffer (ADR-0016) → push productVariantStocksUpdate.
-5. trackInventory=True (чтобы qty=0 = «нет в наличии», ADR-0010).
+4. aggregate stock from Odoo + safety buffer (ADR-0016) → push productVariantStocksUpdate.
+5. trackInventory=True (so qty=0 = "out of stock", ADR-0010).
 6. touch catalog-binding.last_sync_out.
 """
 
@@ -29,10 +29,10 @@ _VARIANT = "product.product"
 
 
 class CatalogBindingMissing(RuntimeError):
-    """Нет catalog-binding для варианта — каталог ещё не синкнут (Phase 3.2 race).
+    """No catalog-binding for the variant — the catalog hasn't been synced yet (a race).
 
-    Поднимаем, чтобы worker (_guard) ушёл в retry с backoff: catalog-sync, скорее
-    всего, до-синкнет товар к следующей попытке. Bulk-seed ловит как skip.
+    Raised so the worker (_guard) retries with backoff: catalog-sync will most
+    likely have synced the product by the next attempt. Bulk-seed catches this as a skip.
     """
 
 
@@ -55,8 +55,8 @@ async def sync_stock_to_saleor(
             f"no product.template binding for tmpl {template_id} (variant {pp_id})"
         )
 
-    # Phase 3.5: резолвим КОНКРЕТНЫЙ вариант (multi-variant). Приоритет:
-    # binding (product.product) → SKU-match → единственный вариант (single-variant).
+    # Resolve the SPECIFIC variant (multi-variant). Priority:
+    # binding (product.product) → SKU-match → single variant (single-variant case).
     variant_id = await binding_repo.find_saleor_id(_VARIANT, pp_id)
     if variant_id is None:
         state = await pm.fetch_product_state(client, saleor_product_id)
@@ -84,7 +84,7 @@ async def sync_stock_to_saleor(
         odoo, pp_id, warehouse, safety_buffer=safety_buffer
     )
 
-    # trackInventory=True → Saleor показывает «нет в наличии» при остатке 0 (ADR-0010).
+    # trackInventory=True → Saleor shows "out of stock" at zero stock (ADR-0010).
     await sm.set_track_inventory(client, variant_id, track=True)
     for level in levels:
         await sm.update_variant_stock(

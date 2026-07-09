@@ -5,52 +5,52 @@ Accepted (2026-05-21)
 
 ## Context
 
-Webhook от Saleor получен, sigverify passed, бизнес-логика sync упала: Odoo вернул 5xx, PG deadlock, ValidationError (SKU не найден), Saleor mutation rate-limited, etc.
+A webhook arrives from Saleor, signature verification passes, but the sync business logic fails: Odoo returns a 5xx, a PG deadlock occurs, a ValidationError is raised (SKU not found), a Saleor mutation gets rate-limited, etc.
 
-Каноничный паттерн (см. [research doc §3.4](../phase-3-integration-research.md)): `queue_job` с `max_retries=5`, exponential backoff. После 5 попыток — job в state `failed`. Что делать дальше?
+The canonical pattern is `queue_job` with `max_retries=5` and exponential backoff. After 5 attempts, the job moves to `failed` state. What happens next?
 
-Варианты:
-- **Auto-cancel заказ + refund клиенту.** Хорошо для UX, плохо если проблема transient (Odoo down 10 минут).
-- **Email клиенту "проблема с обработкой".** Может напугать.
-- **Silence + admin discovers через cron.** Сценарий "узнаём через неделю".
+Options:
+- **Auto-cancel the order + refund the customer.** Good for UX, bad if the problem is transient (e.g., Odoo down for 10 minutes).
+- **Email the customer "there was a problem processing your order."** Could be alarming.
+- **Stay silent and let an admin discover it via a cron job.** The "we find out a week later" scenario.
 
-Заказчик согласовал: **alert + manual intervention**.
+We settled on: **alert + manual intervention**.
 
 ## Decision
 
-После 5 retry'ев `queue_job` job уходит в state `failed`:
+After 5 retries, a `queue_job` job moves to `failed` state:
 
-1. **Slack alert** в канал `#saleor-sync-failed` (URL в env `BRIDGE_SLACK_WEBHOOK_URL`, опционально). Payload: event_type, saleor_id, error_message, link на admin dashboard.
-2. **Email** на `ops@justix.uz` (адрес в env `BRIDGE_OPS_EMAIL`). То же содержимое.
-3. **Admin dashboard** в Odoo: tree view `saleor.binding` с фильтром `sync_state='failed'`, plus stand-alone view `Failed Jobs` (через `queue.job` модель).
-4. **No automatic refund / cancel** — оператор решает руками: ретрить, исправить data, cancel order, etc.
-5. **Customer not notified** — если sync upstream, клиент уже видит "заказ принят" в Saleor. Решаем за минуты, не часы.
+1. **Slack alert** to the `#saleor-sync-failed` channel (URL in env `BRIDGE_SLACK_WEBHOOK_URL`, optional). Payload: event_type, saleor_id, error_message, a link to the admin dashboard.
+2. **Email** to `ops@example.com` (address configurable via env `BRIDGE_OPS_EMAIL`). Same content.
+3. **Admin dashboard** in Odoo: a `saleor.binding` tree view filtered by `sync_state='failed'`, plus a stand-alone `Failed Jobs` view (via the `queue.job` model).
+4. **No automatic refund / cancel** — the operator decides manually: retry, fix the data, cancel the order, etc.
+5. **Customer not notified** — if the sync fails downstream, the customer already sees "order placed" in Saleor. This is resolved in minutes, not hours.
 
-`saleor.binding.sync_state` имеет значение `failed` + `error_message` text-field для diagnostics.
+`saleor.binding.sync_state` has a `failed` value plus an `error_message` text field for diagnostics.
 
 ## Alternatives considered
 
-1. **Auto-retry indefinitely.** **Отброшено:** infinite loop на permanent failure (e.g. SKU truly missing). Лучше fail fast, alert.
+1. **Retry indefinitely.** **Rejected:** an infinite loop on a permanent failure (e.g., SKU genuinely missing). Better to fail fast and alert.
 
-2. **Auto-cancel order через 24 часа.** **Отброшено:** Заказчик хочет manual control — могут быть legitimate reasons задержки.
+2. **Auto-cancel the order after 24 hours.** **Rejected:** we want manual control here — there can be legitimate reasons for a delay.
 
-3. **Customer-facing notification.** **Отброшено:** noise. Большинство failed sync'ов резолвится за 30 минут.
+3. **Customer-facing notification.** **Rejected:** noise. Most failed syncs resolve within 30 minutes.
 
 ## Consequences
 
 **Pros:**
-- Понятный escalation path.
-- Operator контролирует ситуацию (refund / fix / retry).
-- Audit trail в `saleor.binding.error_message`.
+- A clear escalation path.
+- The operator controls the situation (refund / fix / retry).
+- Audit trail in `saleor.binding.error_message`.
 
 **Cons:**
-- Требует human-on-call (хотя бы в рабочее время).
-- Slack + email — double notification noise.
-- На раннем этапе много false alerts, пока не отладим edge cases.
+- Requires a human on call (at least during business hours).
+- Slack + email is double notification noise.
+- Early on, there will be a lot of false alerts until edge cases are ironed out.
 
 **Mitigation:**
-- Phase 4: dashboard с **retry button** прямо в Odoo UI. Operator кликнул → job заново.
-- Phase 4: rate-limit алертов (дедуп по `(event_type, saleor_id)` за час).
-- Slack и Email можно отключать через env (для dev — обычно нет ни Slack ни Email).
+- A future iteration could add a **retry button** directly in the Odoo UI — the operator clicks it and the job runs again.
+- A future iteration could add alert rate-limiting (dedup by `(event_type, saleor_id)` over an hour).
+- Slack and email can both be disabled via env vars (for dev, usually neither is configured).
 
-**В Phase 3.0 не реализуем сам alert pipeline** — это будет в Phase 3.1 когда появится первый реальный sync. Сейчас фиксируем policy.
+**The alert pipeline itself is not implemented yet** — it will be built once the first real sync flow goes live. For now, this ADR fixes the policy.

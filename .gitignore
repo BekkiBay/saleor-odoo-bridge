@@ -9,8 +9,8 @@ __pycache__/
 # Logs
 *.log
 
-# Local data / backups dumps (только корневой data/ — каталожные xlsx-дампы).
-# Anchored: НЕ ловит odoo/addons/*/data/ (там XML-данные модулей, их надо коммитить).
+# Local data / backup dumps (root data/ only).
+# Anchored: does NOT match odoo/addons/*/data/ — those are module XML data files,
 /data/
 backups/*
 !backups/.gitkeep

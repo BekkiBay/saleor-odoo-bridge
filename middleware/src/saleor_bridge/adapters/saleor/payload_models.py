@@ -1,10 +1,10 @@
 """Raw Saleor webhook payload models (pydantic).
 
-Эти модели зеркалят shape subscription queries в manifest.py. Они Saleor-specific
-и не должны утекать в domain/ или usecases/.
+These models mirror the shape of the subscription queries in manifest.py. They are
+Saleor-specific and must not leak into domain/ or usecases/.
 
-Saleor payload приходит как {"event": {...}} с subscription queries, ИЛИ как
-прямой объект в legacy webhook'ах. Поддерживаем оба: парсим то что пришло.
+Saleor payloads arrive either as {"event": {...}} with subscription queries, OR as
+a direct object in legacy webhooks. We support both: parse whatever came in.
 """
 
 from __future__ import annotations
@@ -54,7 +54,7 @@ class SaleorUser(BaseModel):
 
 class SaleorMoney(BaseModel):
     amount: Decimal = Decimal("0")
-    currency: str = "UZS"
+    currency: str = ""
 
 
 class SaleorTaxedMoney(BaseModel):

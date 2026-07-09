@@ -1,54 +1,59 @@
 # ADR-0020: Reverse-echo prevention via skip-guard context
 
 ## Status
-Accepted (2026-05-23) — Phase 3.4. Расширяет механизм из Phase 3.2 (`saleor_sync_skip`).
+Accepted (2026-05-23). Extends the `saleor_sync_skip` mechanism introduced during catalog-sync hardening.
 
 ## Context
 
-Phase 3.1 меняет `sale.order` в Odoo по Saleor-вебхуку (ORDER_FULLY_PAID →
-`action_confirm`). Phase 3.4 ловит изменение `sale.order.state` и пушит обратно в
-Saleor. Без защиты — **бесконечная петля**:
+Order sync changes `sale.order` in Odoo in response to a Saleor webhook
+(ORDER_FULLY_PAID → `action_confirm`). Order-status sync (ADR-0019) catches the
+`sale.order.state` change and pushes it back to Saleor. Without protection, this
+creates an **infinite loop**:
 
-1. Saleor ORDER_FULLY_PAID → Phase 3.1 `action_confirm` в Odoo.
-2. Odoo state draft→sale → Phase 3.4 automation → `orderConfirm` в Saleor.
-3. Saleor ORDER_CONFIRMED → (потенциально) снова в Odoo → …
+1. Saleor ORDER_FULLY_PAID → order sync calls `action_confirm` in Odoo.
+2. Odoo state draft→sale → order-status automation → `orderConfirm` in Saleor.
+3. Saleor ORDER_CONFIRMED → (potentially) back into Odoo → …
 
 ## Decision
 
-Переиспользуем существующий context-флаг **`saleor_sync_skip`** (его уже уважают
-все outbound-диспетчеры: `_emit`/`_dispatch*` проверяют
+We reuse the existing context flag **`saleor_sync_skip`** (already honored by every
+outbound dispatcher: `_emit`/`_dispatch*` check
 `records.env.context.get('saleor_sync_skip')`).
 
-**Phase 3.1 при любом write в Odoo из Saleor-события передаёт
-`context={'saleor_sync_skip': True}`** в JSON-2 вызов:
+**Whenever order sync writes to Odoo in response to a Saleor event, it passes
+`context={'saleor_sync_skip': True}`** in the JSON-2 call:
 
 ```python
 await odoo.call("sale.order", "action_confirm", ids=[order_id],
                 context={"saleor_sync_skip": True})
 ```
 
-Server action новой automation видит флаг в `env.context` → `pass` (не эмитит
-событие). Эхо разорвано на первом же звене.
+The server action for the order-status automation sees the flag in `env.context` →
+`pass` (doesn't emit an event). The echo is broken at the very first link.
 
-**Проверено:** Odoo 19 JSON-2 (`POST /json/2/{model}/{method}`) пробрасывает ключ
-`context` в `env.context` (probe через `default_get(default_note=...)`).
+**Verified:** Odoo 19's JSON-2 API (`POST /json/2/{model}/{method}`) propagates the
+`context` key into `env.context` (confirmed via a probe through
+`default_get(default_note=...)`).
 
-Применяем к Phase 3.1 операциям: `create` (draft), `action_confirm`,
+This is applied to the order-sync operations: `create` (draft), `action_confirm`,
 `action_cancel`.
 
 ## Alternatives considered
 
-- **Дедуп на стороне middleware** (помнить «этот state-change я сам вызвал»).
-  Отброшено: stateful, гонки, сложнее context-флага, который уже встроен.
-- **Отдельный technical-user/marker-поле** на sale.order. Отброшено: лишняя
-  схема; context чист и транзакционен (живёт только в рамках вызова).
+- **Dedup on the middleware side** (remember "I triggered this state change
+  myself"). Rejected: stateful, subject to races, more complex than the
+  already-built-in context flag.
+- **A separate technical user / marker field** on sale.order. Rejected: unnecessary
+  schema; the context flag is clean and transactional (it only lives for the
+  duration of the call).
 
 ## Consequences
 
-**Pros:** ноль новой инфраструктуры (флаг уже есть), транзакционно-локально,
-не оставляет следов. S4 hardening подтверждает отсутствие эха.
+**Pros:** zero new infrastructure (the flag already exists), fully
+transaction-local, leaves no trace. Hardening test S4 confirms there's no echo.
 
-**Cons:** зависит от проброса context через JSON-2 (проверено для Odoo 19). Если
-кто-то поменяет state в Odoo **вручную** (не из Saleor) — флага нет, push
-произойдёт (это и есть желаемое поведение). Эхо-риск только на Saleor-инициированных
-изменениях, где флаг ставится.
+**Cons:** depends on the `context` being propagated through JSON-2 (verified for
+Odoo 19). If someone changes the state in Odoo **manually** (not triggered by
+Saleor), the flag isn't set and the push happens as expected — that's the desired
+behavior. The echo risk only exists for Saleor-initiated changes, where the flag is
+set.

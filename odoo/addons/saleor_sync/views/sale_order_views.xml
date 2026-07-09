@@ -1,38 +1,37 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <!--
-        Unified Justix status on the sale order (spec 2026-06-22):
-        a badge + the manual "delivered" toggle on the form, and a column in
-        the order list — so warehouse staff see the SAME status the customer
-        sees in the storefront.
+        Unified fulfillment status on the sale order: a badge + the manual
+        "delivered" toggle on the form, and a column in the order list — so
+        warehouse staff see the SAME status the customer sees in the storefront.
     -->
-    <record id="view_order_form_justix_status" model="ir.ui.view">
-        <field name="name">sale.order.form.justix.status</field>
+    <record id="view_order_form_fulfillment_status" model="ir.ui.view">
+        <field name="name">sale.order.form.fulfillment.status</field>
         <field name="model">sale.order</field>
         <field name="inherit_id" ref="sale.view_order_form"/>
         <field name="arch" type="xml">
             <xpath expr="//field[@name='partner_id']" position="before">
-                <field name="justix_status" widget="badge"
-                       decoration-success="justix_status == 'delivered'"
-                       decoration-info="justix_status in ('assembling','shipped')"
-                       decoration-danger="justix_status == 'cancelled'"/>
+                <field name="fulfillment_status" widget="badge"
+                       decoration-success="fulfillment_status == 'delivered'"
+                       decoration-info="fulfillment_status in ('assembling','shipped')"
+                       decoration-danger="fulfillment_status == 'cancelled'"/>
             </xpath>
             <xpath expr="//field[@name='client_order_ref']" position="after">
-                <field name="justix_delivered"/>
+                <field name="delivered_to_customer"/>
             </xpath>
         </field>
     </record>
 
-    <record id="view_order_tree_justix_status" model="ir.ui.view">
-        <field name="name">sale.order.list.justix.status</field>
+    <record id="view_order_tree_fulfillment_status" model="ir.ui.view">
+        <field name="name">sale.order.list.fulfillment.status</field>
         <field name="model">sale.order</field>
         <field name="inherit_id" ref="sale.view_order_tree"/>
         <field name="arch" type="xml">
             <xpath expr="//field[@name='amount_total']" position="before">
-                <field name="justix_status" widget="badge"
-                       decoration-success="justix_status == 'delivered'"
-                       decoration-info="justix_status in ('assembling','shipped')"
-                       decoration-danger="justix_status == 'cancelled'"/>
+                <field name="fulfillment_status" widget="badge"
+                       decoration-success="fulfillment_status == 'delivered'"
+                       decoration-info="fulfillment_status in ('assembling','shipped')"
+                       decoration-danger="fulfillment_status == 'cancelled'"/>
             </xpath>
         </field>
     </record>

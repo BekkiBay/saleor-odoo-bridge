@@ -15,13 +15,13 @@ from saleor_bridge.adapters.saleor.product_mutations import (
 def _row(**over):
     base = {
         "id": 7,
-        "name": "Блузка шёлковая розовая",
+        "name": "Pink silk blouse",
         "default_code": "SKU-007",
-        "categ_id": [10, "Одежда / Блузки"],
+        "categ_id": [10, "Clothing / Blouses"],
         "list_price": 420000.0,
         "standard_price": 210000.0,
         "barcode": "4780000000007",
-        "description_sale": "Нежная блузка",
+        "description_sale": "Delicate blouse",
         "active": True,
         "write_date": "2026-05-23 10:00:00",
     }
@@ -33,12 +33,12 @@ def test_product_basic_mapping():
     p = row_to_product(_row())
     assert p.external_id == "7"
     assert p.sku == "SKU-007"
-    assert p.name == "Блузка шёлковая розовая"
+    assert p.name == "Pink silk blouse"
     assert p.category_external_id == "10"
     assert p.list_price == Decimal("420000.00")
     assert p.cost_price == Decimal("210000.00")
     assert p.barcode == "4780000000007"
-    assert p.description == "Нежная блузка"
+    assert p.description == "Delicate blouse"
     assert p.active is True
     assert p.write_date == "2026-05-23 10:00:00"
 

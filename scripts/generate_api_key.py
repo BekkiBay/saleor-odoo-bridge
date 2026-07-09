@@ -1,32 +1,38 @@
 #!/usr/bin/env python3
-"""Сгенерировать Odoo API key для middleware (scope=NULL, 3 месяца).
+"""Generate an Odoo API key for the middleware (scope=NULL, 3 months).
 
-Воспроизводимая замена ручного `odoo shell`. Создаёт ключ для пользователя
-admin@marketplace.local, печатает `BRIDGE_ODOO_API_KEY=<key>` и (по умолчанию)
-переписывает строку BRIDGE_ODOO_API_KEY в .env.
+A reproducible replacement for driving `odoo shell` by hand. Creates a key for
+the admin user named in ODOO_ADMIN_LOGIN, prints `BRIDGE_ODOO_API_KEY=<key>`
+and (by default) rewrites the BRIDGE_ODOO_API_KEY line in .env.
 
-    python scripts/generate_api_key.py                # сгенерить + записать в .env
-    python scripts/generate_api_key.py --no-write     # только напечатать
+    python scripts/generate_api_key.py                # generate + write to .env
+    python scripts/generate_api_key.py --no-write     # print only
 
-Детали:
-- scope=None → ключ работает для любого RPC, нужен для JSON-2 REST API
-  middleware (Authorization: bearer <key>). НЕ 'rpc'.
-- expiration = now + 3 месяца. Дата создания → docs/runbooks/api-key-rotation.md.
-- _generate привязывает ключ к self.env.user → выполняем with_user(admin).
+Details:
+- scope=None → the key works for any RPC, which the middleware's JSON-2 REST
+  calls need (Authorization: bearer <key>). NOT 'rpc'.
+- expiration = now + 3 months. Record the date in docs/runbooks/api-key-rotation.md.
+- _generate binds the key to self.env.user → run it under with_user(admin).
 """
 
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import subprocess
 import sys
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 ENV_PATH = PROJECT_ROOT / ".env"
-ADMIN_LOGIN = "admin@marketplace.local"
-KEY_NAME = "saleor-bridge-smoke"
+load_dotenv(ENV_PATH)
+
+ADMIN_LOGIN = os.environ.get("ODOO_ADMIN_LOGIN", "admin@example.com")
+ODOO_DB = os.environ.get("ODOO_DB_NAME", "odoo")
+KEY_NAME = "saleor-bridge"
 MARKER = "BRIDGE_ODOO_API_KEY_MARKER="
 
 # Код выполняется внутри `odoo shell` (есть env, odoo). fields НЕ авто-импортится
@@ -51,7 +57,7 @@ def run_shell() -> str:
     """Выполнить SHELL_CODE в odoo shell, вернуть сгенерированный ключ."""
     cmd = [
         "docker", "compose", "exec", "-T", "odoo",
-        "odoo", "shell", "-d", "marketplace", "--no-http", "-c", "/tmp/odoo.conf",
+        "odoo", "shell", "-d", ODOO_DB, "--no-http", "-c", "/tmp/odoo.conf",
     ]
     proc = subprocess.run(
         cmd, input=SHELL_CODE, capture_output=True, text=True,

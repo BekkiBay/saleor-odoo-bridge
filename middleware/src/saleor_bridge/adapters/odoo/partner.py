@@ -1,4 +1,4 @@
-"""domain.Customer / Address → res.partner операции (Odoo JSON-2)."""
+"""domain.Customer / Address → res.partner operations (Odoo JSON-2)."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ log = structlog.get_logger()
 
 _PARTNER = "res.partner"
 
-# Кэш country_id чтобы не дёргать Odoo на каждый адрес.
+# Cache country_id so we don't hit Odoo for every address.
 _country_cache: dict[str, int | None] = {}
 
 
@@ -57,7 +57,7 @@ async def find_partner_id(odoo: OdooClient, email: str) -> int | None:
 
 
 async def upsert_partner(odoo: OdooClient, customer: Customer, *, existing_id: int | None) -> int:
-    """Create или update top-level res.partner. Возвращает odoo id."""
+    """Create or update the top-level res.partner. Returns the odoo id."""
     vals = {
         "name": customer.display_name,
         "email": str(customer.email),
@@ -76,9 +76,9 @@ async def upsert_partner(odoo: OdooClient, customer: Customer, *, existing_id: i
 
 
 async def _sync_child_addresses(odoo: OdooClient, customer: Customer, partner_id: int) -> None:
-    """Создать/обновить child contacts type invoice/delivery.
+    """Create/update child contacts of type invoice/delivery.
 
-    Idempotency: ищем child с тем же type; если есть — write, иначе create.
+    Idempotency: look up a child with the same type; if found — write, else create.
     """
     for addr, addr_type in (
         (customer.default_billing_address, "invoice"),

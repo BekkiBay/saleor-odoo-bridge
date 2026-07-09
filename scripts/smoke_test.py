@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
@@ -33,20 +34,24 @@ sys.path.insert(0, str(HERE))
 
 from dotenv import load_dotenv  # noqa: E402
 
+# Load .env before the module-level config constants below read the environment.
+load_dotenv(PROJECT_ROOT / ".env")
+
 from lib.client import connect_odoorpc, load_config  # noqa: E402
 from verify_smoke import verify  # noqa: E402
 
 # ── config ──────────────────────────────────────────────────────────────────
-SALEOR_GQL = "http://localhost:8000/graphql/"
-MIDDLEWARE = "http://localhost:8080"
-MANIFEST_URL = "http://host.docker.internal:8080/api/manifest"
-APP_NAME = "Justix Odoo Sync (Smoke)"
+SALEOR_GQL = os.environ.get("SALEOR_GQL_URL", "http://localhost:8000/graphql/")
+MIDDLEWARE = os.environ.get("BRIDGE_MIDDLEWARE_URL", "http://localhost:8080")
+_PUBLIC_URL = os.environ.get("BRIDGE_MIDDLEWARE_PUBLIC_URL", "http://host.docker.internal:8080")
+MANIFEST_URL = f"{_PUBLIC_URL.rstrip('/')}/api/manifest"
+APP_NAME = os.environ.get("BRIDGE_APP_NAME", "Saleor Odoo Sync") + " (Smoke)"
 PERMISSIONS = [
     "MANAGE_ORDERS", "MANAGE_PRODUCTS", "MANAGE_USERS",
     "MANAGE_PRODUCT_TYPES_AND_ATTRIBUTES", "MANAGE_CHANNELS",
 ]
-SALEOR_ADMIN_EMAIL = "admin@example.com"
-SALEOR_ADMIN_PASSWORD = "admin"
+SALEOR_ADMIN_EMAIL = os.environ.get("SALEOR_ADMIN_EMAIL", "admin@example.com")
+SALEOR_ADMIN_PASSWORD = os.environ.get("SALEOR_ADMIN_PASSWORD", "admin")
 
 GREEN, RED, CYAN, RESET = "\033[32m", "\033[31m", "\033[36m", "\033[0m"
 

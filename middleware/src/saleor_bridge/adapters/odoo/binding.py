@@ -1,6 +1,6 @@
-"""saleor.binding repository — external ID mapping через Odoo JSON-2.
+"""saleor.binding repository — external ID mapping via Odoo JSON-2.
 
-Реализует ADR-0007: lookup Odoo record by Saleor ID. Хранит state/error.
+Implements ADR-0007: lookup Odoo record by Saleor ID. Stores state/error.
 """
 
 from __future__ import annotations
@@ -15,13 +15,13 @@ log = structlog.get_logger()
 
 _MODEL = "saleor.binding"
 
-# Маркер «реального Saleor-объекта ещё нет» (failed до первого успешного create).
-# saleor_id required+unique, поэтому для visibility пишем sentinel, но трактуем его
-# как «binding отсутствует» (см. find_saleor_id) → retry уходит в create-путь.
+# Marker for "no real Saleor object yet" (failed before the first successful create).
+# saleor_id is required+unique, so for visibility we write a sentinel, but we treat it
+# as "binding absent" (see find_saleor_id) → retry goes down the create path.
 _SENTINEL_PREFIX = "<"
 
-# product.product (варианты) удаляются каскадом при wipe products → чистим binding.
-# Атрибуты wipe НЕ трогает (ensure_attribute найдёт их по имени и перепривяжет).
+# product.product (variants) are cascade-deleted on wipe products → we clean up the binding.
+# wipe does NOT touch attributes (ensure_attribute will find them by name and re-link them).
 _OUTBOUND_MODELS = ["product.template", "product.product", "product.category", "product.type"]
 
 
@@ -34,10 +34,10 @@ class BindingRepository:
         self.odoo = odoo
 
     async def delete_outbound(self) -> int:
-        """Удалить все outbound-биндинги (product.template/category/type).
+        """Delete all outbound bindings (product.template/category/type).
 
-        Нужно после `wipe` Saleor-каталога: иначе bulk-seed уйдёт в update-путь по
-        мёртвым saleor_id. Возвращает число удалённых.
+        Needed after a Saleor catalog `wipe`: otherwise bulk-seed would go down the
+        update path against dead saleor_id values. Returns the number deleted.
         """
         ids = await self.odoo.search(_MODEL, [("model_name", "in", _OUTBOUND_MODELS)])
         if ids:
@@ -45,7 +45,7 @@ class BindingRepository:
         return len(ids)
 
     async def delete_out(self, model_name: str, odoo_id: int) -> None:
-        """Удалить binding по (model_name, odoo_id). No-op если нет (Phase 3.5: archive variant)."""
+        """Delete binding by (model_name, odoo_id). No-op if none exists (used when archiving a variant)."""
         ids = await self.odoo.search(
             _MODEL, [("model_name", "=", model_name), ("odoo_id", "=", odoo_id)]
         )
@@ -53,7 +53,7 @@ class BindingRepository:
             await self.odoo.call(_MODEL, "unlink", ids=ids)
 
     async def delete_by_saleor_id(self, model_name: str, saleor_id: str) -> None:
-        """Удалить binding по (model_name, saleor_id) — для stale Saleor-варианта в reconcile."""
+        """Delete binding by (model_name, saleor_id) — for a stale Saleor variant during reconcile."""
         ids = await self.odoo.search(
             _MODEL, [("model_name", "=", model_name), ("saleor_id", "=", saleor_id)]
         )
@@ -70,10 +70,10 @@ class BindingRepository:
         return rows[0]["odoo_id"] if rows else None
 
     async def find_saleor_id(self, model_name: str, odoo_id: int) -> str | None:
-        """Reverse lookup для outbound flow (Odoo → Saleor): по odoo_id → saleor_id.
+        """Reverse lookup for the outbound flow (Odoo → Saleor): odoo_id → saleor_id.
 
-        Sentinel-значения (failed-заглушки без реального Saleor-объекта) трактуем как
-        «нет binding» → retry пойдёт в create-путь, а не в update по мусорному ID.
+        Sentinel values (failed placeholders without a real Saleor object) are treated as
+        "no binding" → retry goes down the create path instead of updating a bogus ID.
         """
         rows = await self.odoo.search_read(
             _MODEL,
@@ -95,10 +95,10 @@ class BindingRepository:
         state: str = "synced",
         error: str | None = None,
     ) -> int:
-        """Outbound upsert — ключ по odoo_id (стабилен для Odoo→Saleor).
+        """Outbound upsert — keyed by odoo_id (stable for Odoo→Saleor).
 
-        Перезаписывает в т.ч. sentinel-заглушку (saleor_id <unsynced:..> → реальный id),
-        не плодя дубль и не нарушая partial-unique (model_name, odoo_id).
+        Also overwrites a sentinel placeholder (saleor_id <unsynced:..> → real id),
+        without creating a duplicate or violating the partial-unique (model_name, odoo_id).
         """
         now = datetime.utcnow().isoformat(sep=" ", timespec="seconds")
         existing = await self.odoo.search(
@@ -153,11 +153,11 @@ class BindingRepository:
         return await self.odoo.create(_MODEL, vals)
 
     async def touch_out(self, model_name: str, odoo_id: int) -> None:
-        """Обновить только last_sync_out существующего binding, не трогая state/error.
+        """Update only last_sync_out on an existing binding, without touching state/error.
 
-        Phase 3.3: stock-sync переиспользует catalog-binding (product.template) для
-        резолва Saleor-продукта; нам нужно отметить «остаток отправлен», но НЕ
-        затирать catalog sync_state ('diverged'/'failed'). No-op если binding нет.
+        stock-sync reuses the catalog binding (product.template) to resolve the
+        Saleor product; we need to mark "stock sent" but must NOT clobber the
+        catalog sync_state ('diverged'/'failed'). No-op if the binding doesn't exist.
         """
         existing = await self.odoo.search(
             _MODEL, [("model_name", "=", model_name), ("odoo_id", "=", odoo_id)], limit=1
@@ -167,7 +167,7 @@ class BindingRepository:
             await self.odoo.write(_MODEL, [existing[0]], {"last_sync_out": now})
 
     async def mark_failed_out(self, model_name: str, odoo_id: int, error: str) -> None:
-        """Outbound (Odoo→Saleor) failure: помечаем binding по odoo_id (ADR-0008)."""
+        """Outbound (Odoo→Saleor) failure: marks the binding by odoo_id (ADR-0008)."""
         existing = await self.odoo.search(
             _MODEL,
             [("model_name", "=", model_name), ("odoo_id", "=", odoo_id)],
@@ -192,8 +192,8 @@ class BindingRepository:
         if existing:
             await self.odoo.write(_MODEL, [existing[0]], vals)
         else:
-            # Создаём binding-заглушку чтобы failed был виден в dashboard.
-            # odoo_id=0 — placeholder (record не создался).
+            # Create a binding placeholder so the failure is visible in the dashboard.
+            # odoo_id=0 — placeholder (record wasn't created).
             await self.odoo.create(
                 _MODEL, {"model_name": model_name, "saleor_id": saleor_id, "odoo_id": 0, **vals}
             )

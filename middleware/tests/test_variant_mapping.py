@@ -1,4 +1,4 @@
-"""Odoo product.product + PTAV → domain.Variant маппинг (Phase 3.5, ADR-0024/0026)."""
+"""Odoo product.product + PTAV → domain.Variant mapping (ADR-0024/0026)."""
 
 from __future__ import annotations
 
@@ -19,16 +19,16 @@ def _odoo() -> FakeOdoo:
                 "standard_price": 80000.0,
                 "barcode": "4600000000015",
                 "active": True,
-                "product_tmpl_id": [1, "Платье"],
+                "product_tmpl_id": [1, "Dress"],
                 "product_template_attribute_value_ids": [501, 502],
             },
             6: {
-                "default_code": False,  # пустой → fallback odoo-<id>
+                "default_code": False,  # empty → fallback odoo-<id>
                 "lst_price": 150000.0,
                 "standard_price": 0.0,
                 "barcode": False,
                 "active": True,
-                "product_tmpl_id": [1, "Платье"],
+                "product_tmpl_id": [1, "Dress"],
                 "product_template_attribute_value_ids": [503, 502],
             },
         },
@@ -51,7 +51,7 @@ async def test_variant_maps_sku_price_attributes():
     assert v.cost == Decimal("80000.00")
     assert v.barcode == "4600000000015"
     assert v.active is True
-    # PTAV → (attribute, value) пары через product_attribute_value_id
+    # PTAV → (attribute, value) pairs via product_attribute_value_id
     pairs = {(a.attribute_external_id, a.value_external_id) for a in v.attributes}
     assert pairs == {("10", "100"), ("11", "110")}
 

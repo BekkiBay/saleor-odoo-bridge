@@ -1,103 +1,82 @@
-# scripts/ — автоматизация Odoo
+# scripts/ — Odoo and Saleor provisioning
 
-Python-скрипты для настройки локального Odoo 19 через JSON-RPC + импорта каталога из xlsx. Управляются одним orchestrator'ом — `odoo_setup.py`.
+Python scripts that stand up the Odoo side of the bridge and register the App in
+Saleor. Run them from the repository root, with `.env` filled in.
 
-## Требования
+## Requirements
 
-- Python **3.10+** (на macOS 3.9 тоже работает за счёт `from __future__ import annotations`)
-- Запущенные `db` и `odoo` контейнеры (`docker compose up -d` в корне проекта — orchestrator поднимет их сам, если не запущены)
-- `.env` с заполненными переменными (см. `.env.example` в корне)
+- Python **3.10+**
+- The `db` and `odoo` containers running (`docker compose up -d` — `odoo_setup.py`
+  will start them itself if they are not)
+- A populated `.env` (see `.env.example` at the repository root)
 
-## Установка
+## Install
 
 ```bash
-cd odoo-saleor-integration
-
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r scripts/requirements.txt
 ```
 
-## Где взять xlsx
-
-Файл `test-catalog-clothing-v2.xlsx` — приходит из чата (или от заказчика). Положи в `data/`:
+## The usual order
 
 ```bash
-mkdir -p data
-cp ~/Downloads/test-catalog-clothing-v2.xlsx data/
+python scripts/odoo_setup.py --reset       # 1. database, modules, company, checks
+python scripts/generate_api_key.py         # 2. Odoo API key → BRIDGE_ODOO_API_KEY in .env
+python scripts/install_bridge_app.py       # 3. register the App in your Saleor
+python scripts/smoke_test.py               # 4. end-to-end: Saleor → middleware → Odoo
 ```
 
-Ожидаемые колонки (порядок не важен, имена точные):
-`Артикул`, `Название`, `Категория товаров`, `Цена продажи (UZS)`, `Себестоимость (UZS)`, `Штрихкод`, `Описание`.
+## What each script does
 
-Категории — иерархия через ` / ` (например `Одежда / Платья`).
+| Script | Purpose |
+|---|---|
+| `odoo_setup.py` | Orchestrator: creates the database, installs `saleor_sync` and its dependencies, configures the main company (name/currency/country/timezone from `.env`), then verifies the result. Does **not** import a catalog — your products come from your own Odoo data. |
+| `generate_api_key.py` | Generates an Odoo API key (scope=NULL, 3-month TTL) for the middleware and rewrites `BRIDGE_ODOO_API_KEY` in `.env`. A reproducible replacement for driving `odoo shell` by hand. |
+| `install_bridge_app.py` | Installs the persistent Saleor App so the middleware can call Saleor mutations. Idempotent: removes an existing app of the same name unless `--keep`. |
+| `smoke_test.py` | End-to-end check: creates a customer in Saleor, waits for it to land in Odoo. |
+| `verify_bindings.py` | Consistency checker for `saleor.binding`: orphans, dead references, count mismatches across products/categories/attributes/variants. |
+| `verify_smoke.py` | Assertion helpers used by `smoke_test.py`. |
+| `backup.sh` / `restore.sh` | `pg_dump` + filestore tarball, and the reverse. The database name defaults to `$ODOO_DB_NAME`. |
+| `odoo-shell.sh` | Interactive `odoo shell` in the running container. |
+| `entrypoint.sh` | Docker entrypoint: substitutes env vars into `odoo.conf`. |
 
-## Команды
+## `odoo_setup.py` flags
 
 ```bash
-# Полный сброс + настройка + импорт
-python scripts/odoo_setup.py --reset
-
-# Только настройка БД, без импорта
-python scripts/odoo_setup.py --skip-import
-
-# Идемпотентный прогон — ничего не сломает, добавит/обновит чего нет
-python scripts/odoo_setup.py
-
-# План без изменений
-python scripts/odoo_setup.py --dry-run
-
-# Другой xlsx
-python scripts/odoo_setup.py --reset --catalog path/to/other.xlsx
+python scripts/odoo_setup.py             # idempotent: create the DB only if missing
+python scripts/odoo_setup.py --reset     # drop and recreate the database
+python scripts/odoo_setup.py --dry-run   # print the plan, change nothing
 ```
 
-## Что делает orchestrator
+## Configuration
 
-1. **Pre-flight** — поднимет docker compose если не запущен, дождётся HTTP Odoo, проверит .env + наличие xlsx.
-2. **Database** — снесёт `marketplace` (если `--reset`) и создаст заново через `/web/database/create` с lang=ru_RU, country=uz, demo=false.
-3. **Modules** — установит `contacts`, `stock`, `sale_management`, `account` через `ir.module.module.button_immediate_install`.
-4. **Company** — `res.company` → currency UZS, country UZ, name из `.env`; пользователю admin выставит tz=Asia/Tashkent, lang=ru_RU.
-5. **Categories** — создаст дерево `product.category` (идемпотентно, по `name + parent_id`).
-6. **Products** — создаст/обновит `product.template` (идемпотентно, по `default_code`). Поддерживает Odoo 17+ (`is_storable`) и старее (`type='product'`) — автоматически определит.
-7. **Verification** — 13 проверок (контейнеры, HTTP, БД, модули, валюта, страна, tz, категории, товары, SKU, ссылки на категории, цена SKU-001).
-8. **Финальный отчёт** в stdout.
-
-## Идемпотентность
-
-| Сценарий                          | Поведение                                   |
-| --------------------------------- | ------------------------------------------- |
-| Свежая система, без флагов        | Всё создаст                                  |
-| Повторный запуск без флагов       | Увидит существующее, ничего не сломает      |
-| `--reset`                         | Снесёт БД и создаст с нуля                  |
-| `--skip-import`                   | Импорт каталога не запускается              |
-
-## Структура
+Everything is read from the root `.env`. The locale-shaped settings are:
 
 ```
-scripts/
-├── requirements.txt
-├── odoo_setup.py              # orchestrator
-├── lib/
-│   ├── client.py              # Config, odoorpc, requests session
-│   ├── database.py            # list/create/drop через /web/database/*
-│   ├── modules.py             # ir.module.module
-│   ├── company.py             # res.company + res.users
-│   ├── categories.py          # product.category дерево
-│   ├── products.py            # product.template + xlsx reader
-│   └── verify.py              # финальные проверки + табличка
-├── backup.sh / restore.sh / odoo-shell.sh
-├── entrypoint.sh              # обёртка для docker для envsubst /etc/odoo/odoo.conf
-└── README.md
+ODOO_COMPANY_NAME=My Company
+ODOO_CURRENCY=USD
+ODOO_COUNTRY=US
+ODOO_TIMEZONE=UTC
+ODOO_LANG=en_US
 ```
+
+The Saleor-facing scripts additionally read `SALEOR_GQL_URL`, `SALEOR_ADMIN_EMAIL`
+and `SALEOR_ADMIN_PASSWORD` (staff credentials, used only to register the App), plus
+`BRIDGE_APP_NAME` for the app's display name.
 
 ## Troubleshooting
 
-**`не удалось залогиниться в marketplace как admin@marketplace.local`** — проверь `ODOO_ADMIN_LOGIN` и `ODOO_ADMIN_USER_PASSWORD` в `.env`. Если БД создавалась с другими credentials — сделай `--reset`.
+**`odoo_setup.py` fails at "Module installation"**
+The `saleor_sync` addon must be visible to Odoo. The compose file mounts
+`./odoo/addons` into the container; check it is there with
+`docker compose exec odoo ls /mnt/extra-addons`.
 
-**`модули не найдены в ir.module.module: [...]`** — несовпадение technical_name в новой версии Odoo. Открой http://localhost:8069/odoo/apps, найди модуль, наведи курсор → в URL увидишь technical_name. Подставь в `lib/modules.py::REQUIRED_MODULES`.
+**`generate_api_key.py` prints no key**
+It runs inside `odoo shell` against `$ODOO_DB_NAME`. Confirm the database exists and
+that `ODOO_ADMIN_LOGIN` matches a real user in it.
 
-**`storable field detected: type=product`** — версия Odoo старше 17. Должно работать.
-
-**`docker compose up -d failed`** — запусти руками и посмотри stderr: `cd .. && docker compose up -d`. Чаще всего — порт 8069 занят или забыт `.env`.
-
-**Запуск `--reset` падает на `create_database` с timeout** — создание БД на холодную = ~60–90с (initdb + base + ru_RU). Если упирается в 180с — проверь логи `docker compose logs odoo`.
+**`install_bridge_app.py` cannot reach the manifest**
+Saleor fetches `BRIDGE_MIDDLEWARE_PUBLIC_URL/api/manifest` itself. From a Saleor
+running in Docker, `localhost` is that container — use `host.docker.internal` or a
+tunnel URL.

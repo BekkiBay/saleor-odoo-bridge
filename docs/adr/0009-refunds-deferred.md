@@ -1,58 +1,52 @@
-# ADR-0009: Refunds отложены на Phase 4 (не Phase 3)
+# ADR-0009: Refunds deferred, out of MVP scope
 
 ## Status
 Accepted (2026-05-21)
 
 ## Context
 
-Phase 3 MVP scope (см. [research doc §9](../phase-3-integration-research.md)):
+The initial MVP scope covers: Saleor → Odoo order and customer sync, Odoo → Saleor catalog sync, stock sync, order-status sync (Odoo → Saleor), and variants + attributes.
 
-- 3.1 Saleor → Odoo orders + customers
-- 3.2 Odoo → Saleor catalog
-- 3.3 Stock sync
-- 3.4 Order status Odoo → Saleor
-- 3.5 Variants + attributes
-
-Phase 3.6 (refunds) изначально планировался — отменён по решению заказчика. Reasoning: маркетплейс одежды в UZ, return rate низкий первые месяцы; полная schema refund (partial refund + stock return + invoice reversal) добавляет 12+ часов и сложные edge cases (chargebacks, exchange vs refund), которые лучше делать когда есть реальные данные о return patterns.
+Refunds were initially planned as part of that scope but the decision was made to leave them out for now. Reasoning: the store's return rate is expected to be low in the early months, and a full refund schema (partial refund + stock return + invoice reversal) adds 12+ hours of work and complex edge cases (chargebacks, exchange vs. refund) that are better designed once real return-pattern data is available.
 
 ## Decision
 
-**В Phase 3 refunds не реализуются.**
+**Refunds are not implemented in this iteration.**
 
-Конкретно:
-- Webhook `ORDER_REFUNDED` / `ORDER_FULLY_REFUNDED` — **не подписываемся** в манифесте.
-- Mapping для `account.move` (`out_refund`) / `account.payment` (outbound) — не пишем.
-- Reverse stock picking — не пишем.
+Concretely:
+- The `ORDER_REFUNDED` / `ORDER_FULLY_REFUNDED` webhooks — **not subscribed to** in the manifest.
+- Mapping for `account.move` (`out_refund`) / `account.payment` (outbound) — not written.
+- Reverse stock picking — not written.
 
-`ORDER_CANCELLED` (full cancel before fulfillment) — **обрабатываем** (см. ADR-0005), это не refund в финансовом смысле — `_action_cancel()` на sale.order, отпускает reserved stock, не трогает money.
+`ORDER_CANCELLED` (a full cancel before fulfillment) **is** handled (see ADR-0005) — that's not a refund in the financial sense, it's `_action_cancel()` on the sale.order, which releases reserved stock without touching money.
 
-**Schema requirement:** дизайн `saleor.binding` и mapping table должен **допускать добавление refunds без breaking changes**.
+**Schema requirement:** the design of `saleor.binding` and the mapping table must **allow refunds to be added later without breaking changes**.
 
-Конкретно:
-- `saleor.binding.model_name` уже generic — можно добавить `account.payment`, `account.move`, `stock.return.picking` records.
-- `saleor.binding.saleor_id` хранит base64 ID — `TransactionItem.id` поместится туда же без изменения схемы.
-- `sync_state` Selection включает `synced`, `failed`, `diverged` — добавится `refunded` без миграции (Selection extension в Odoo идемпотентна).
+Concretely:
+- `saleor.binding.model_name` is already generic — `account.payment`, `account.move`, and `stock.return.picking` records can be added later.
+- `saleor.binding.saleor_id` stores a base64 ID — `TransactionItem.id` fits there without any schema change.
+- The `sync_state` Selection already includes `synced`, `failed`, `diverged` — `refunded` can be added without a migration (extending a Selection in Odoo is idempotent).
 
 ## Alternatives considered
 
-1. **Реализовать "minimal refund" — только full refund.** **Отброшено:** партиал в реальных кейсах = 80% возвратов. Half-feature хуже чем no feature.
+1. **Implement a "minimal refund" — full refund only.** **Rejected:** in practice, partial refunds account for roughly 80% of returns. A half-feature is worse than no feature.
 
-2. **Implement стoral schema для refunds, но без logic.** Заглушки + DB schema. **Отброшено:** YAGNI. Schema всё равно изменится когда возьмёмся за реальную логику.
+2. **Implement the storage schema for refunds without any logic.** Stub fields + DB schema, no automation. **Rejected:** YAGNI. The schema will likely change once the real logic is built anyway.
 
 ## Consequences
 
 **Pros:**
-- -12 часов из Phase 3 → быстрее доставка MVP.
-- Меньше edge cases на тестировании Phase 3.5.
-- Реальные return patterns соберутся за 2-3 месяца — лучшее design refund flow.
+- 12 fewer hours of work → faster delivery of the MVP.
+- Fewer edge cases to cover during testing.
+- Real return patterns will accumulate over 2-3 months, enabling a better refund-flow design later.
 
 **Cons:**
-- Заказчику нужен manual workflow для refunds в Phase 3 период:
-  - Refund в платёжке вручную (UZcard/Click/Payme dashboard).
-  - Cancel order в Saleor Dashboard.
-  - Reverse stock в Odoo вручную (`Inventory → Adjustments`).
-- Эту операционку надо задокументировать (runbook).
+- A manual workflow is needed for refunds in the meantime:
+  - Refund manually in the payment provider's dashboard.
+  - Cancel the order in the Saleor Dashboard.
+  - Reverse the stock in Odoo manually (`Inventory → Adjustments`).
+- This manual process needs to be documented in a runbook.
 
 **Mitigation:**
-- В `docs/runbooks/manual-refund.md` (создаётся в Phase 3.1) — пошаговая инструкция для оператора.
-- В Phase 4 — `saleor_sync.refund` model + automated flow. Бэк-фил исторических refunds — отдельным cron, по `ORDER_REFUNDED` событиям из Saleor history (Saleor хранит).
+- A step-by-step operator runbook for manual refunds should be written separately.
+- A later iteration could add a `saleor_sync.refund` model plus an automated flow. Historical refunds could be backfilled via a separate cron job driven by `ORDER_REFUNDED` events from Saleor's history (which Saleor retains).

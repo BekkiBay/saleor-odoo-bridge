@@ -13,7 +13,7 @@ if [[ $# -lt 1 ]]; then
 fi
 
 BACKUP_DIR="$1"
-DB_NAME="${2:-marketplace}"
+DB_NAME="${2:-${ODOO_DB_NAME:-odoo}}"
 
 if [[ ! -f "${BACKUP_DIR}/db.dump" || ! -f "${BACKUP_DIR}/filestore.tar.gz" ]]; then
     echo "ERROR: в ${BACKUP_DIR} не хватает db.dump и/или filestore.tar.gz" >&2

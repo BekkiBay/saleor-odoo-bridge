@@ -1,46 +1,52 @@
-# ADR-0022: Customer notification policy на order-мутациях
+# ADR-0022: Customer notification policy on order mutations
 
 ## Status
-Accepted (2026-05-23) — Phase 3.4
+Accepted (2026-05-23)
 
 ## Context
 
-При синке статуса заказа Odoo → Saleor нужно решить, слать ли покупателю email.
-Не каждое изменение интересно клиенту: подтверждение оплаты — техническая
-транзакция, а вот «заказ отправлен» с трек-номером — важное событие.
+When syncing order status from Odoo to Saleor, we need to decide whether to email
+the customer. Not every change matters to the customer: payment confirmation is a
+technical transaction, whereas "your order has shipped" with a tracking number is an
+important event.
 
-Реальность схемы Saleor (этой версии) ограничивает контроль:
-- `orderFulfill(input: OrderFulfillInput)` — **есть** `notifyCustomer: Boolean`.
-- `orderConfirm(id)`, `orderCancel(id)`, `orderMarkAsPaid(id)` — параметра notify
-  **нет**; рассылку этих событий определяют настройки Saleor (Shop/Channel).
+The reality of this version of the Saleor schema limits our control:
+- `orderFulfill(input: OrderFulfillInput)` — **has** a `notifyCustomer: Boolean`
+  parameter.
+- `orderConfirm(id)`, `orderCancel(id)`, `orderMarkAsPaid(id)` — **have no** notify
+  parameter; whether these events trigger an email is controlled by Saleor's own
+  settings (Shop/Channel).
 
 ## Decision
 
-**Контролируем notify там, где Saleor это позволяет — на `orderFulfill`:**
+**We control notification where Saleor allows it — on `orderFulfill`:**
 
-| Мутация | notify | Как реализовано |
+| Mutation | notify | How it's implemented |
 |---------|--------|-----------------|
-| `orderFulfill` | **True** | `OrderFulfillInput.notifyCustomer = True` (клиенту важно «отправлено» + трек) |
-| `orderConfirm` | n/a | параметра нет; письмо confirm управляется настройками Saleor — мы доп. не шлём |
-| `orderCancel` | n/a | параметра нет; уведомление об отмене — по настройкам Saleor |
-| `orderMarkAsPaid` | n/a (False по смыслу) | параметра нет; тихая backoffice-операция |
+| `orderFulfill` | **True** | `OrderFulfillInput.notifyCustomer = True` (the customer cares about "shipped" + tracking) |
+| `orderConfirm` | n/a | no such parameter; the confirmation email is governed by Saleor's own settings — we don't send an extra one |
+| `orderCancel` | n/a | no such parameter; the cancellation notice is governed by Saleor's settings |
+| `orderMarkAsPaid` | n/a (effectively False) | no such parameter; a silent backoffice operation |
 
-`notify_customer` пробрасывается параметром в usecase/adapter (default `True` для
-fulfill) — конфигурируемо на будущее, но в MVP фактически влияет только на
-`orderFulfill`.
+`notify_customer` is passed as a parameter into the use case/adapter (default `True`
+for fulfill) — configurable for the future, but in practice it currently only
+affects `orderFulfill`.
 
 ## Alternatives considered
 
-- **Слать всё (notify везде True).** Отброшено: на confirm/markPaid у Saleor нет
-  параметра, а спам клиенту техническими письмами — плохой UX (где есть контроль —
-  на fulfill — оставляем True).
-- **Не слать ничего (notify=False на fulfill).** Отброшено: «заказ отправлен» —
-  ключевое письмо для клиента (снижает «где мой заказ?» обращения в support).
+- **Notify on everything (notify=True everywhere).** Rejected: `confirm`/`markPaid`
+  have no such Saleor parameter, and spamming the customer with technical emails is
+  poor UX (where we do have control — on fulfill — we keep it True).
+- **Notify on nothing (notify=False on fulfill).** Rejected: "your order has
+  shipped" is a key email for the customer (it reduces "where's my order?" support
+  tickets).
 
 ## Consequences
 
-**Pros:** клиент получает значимое уведомление об отгрузке с трек-номером;
-техно-транзакции не контролируются нами вручную (Saleor сам по настройкам).
+**Pros:** the customer gets a meaningful notification about shipment with a
+tracking number; technical transactions aren't something we manually control
+(Saleor handles those via its own settings).
 
-**Cons:** confirm/cancel-уведомления вне нашего прямого контроля (зависят от
-настроек Saleor) — если потребуется тонкая политика, нужен Saleor-config (Phase 4).
+**Cons:** confirm/cancel notifications are outside our direct control (they depend
+on Saleor's settings) — if fine-grained control is ever needed, it would require
+Saleor-side configuration work.

@@ -1,41 +1,46 @@
-# ADR-0027: Attribute input type — DROPDOWN only в MVP
+# ADR-0027: Attribute input type — DROPDOWN only for the MVP
 
 ## Status
-Accepted (2026-05-23) — Phase 3.5.
+Accepted (2026-05-23)
 
 ## Context
 
-Saleor поддерживает много типов атрибутов: `DROPDOWN`, `MULTISELECT`, `NUMERIC`,
+Saleor supports many attribute types: `DROPDOWN`, `MULTISELECT`, `NUMERIC`,
 `RICH_TEXT`, `PLAIN_TEXT`, `BOOLEAN`, `DATE`, `DATE_TIME`, `FILE`, `REFERENCE`,
-`SWATCH`. У Odoo `product.attribute.display_type` — `radio`/`select`/`color`/`pills`,
-плюс `product.attribute.value.html_color` для swatch.
+`SWATCH`. Odoo's `product.attribute.display_type` is
+`radio`/`select`/`color`/`pills`, plus `product.attribute.value.html_color` for
+swatches.
 
-Для каталога одежды MVP нужны размер/цвет/материал — все выбираются из конечного
-списка значений.
+For the MVP catalog we need size/color/material — all of which are selected from a
+finite list of values.
 
 ## Decision
 
-- **Все атрибуты синкаем как `inputType: DROPDOWN`**, независимо от Odoo
+- **All attributes are synced as `inputType: DROPDOWN`**, regardless of Odoo's
   `display_type`. `domain.Attribute.input_type = Literal["DROPDOWN"]`.
-- **`type: PRODUCT`, `valueRequired: false`** — чтобы single-variant продукты
-  держали вариант без значений атрибутов (миграция, ADR-0025).
-- Variant attribute value передаём как `dropdownValue: {id: <AttributeValue id>}`.
-- **`html_color` НЕ синкаем** в MVP (может быть пустым; swatch — Phase 4).
-- **`create_variant = 'no_variant'` атрибуты скипаем** (это product-level
-  «состав: 100% хлопок», не variant-defining) — Phase 4.
+- **`type: PRODUCT`, `valueRequired: false`** — so single-variant products can keep
+  their variant without attribute values (see the migration in ADR-0025).
+- Variant attribute values are sent as `dropdownValue: {id: <AttributeValue id>}`.
+- **`html_color` is NOT synced** in the MVP (it can be empty; swatch support is a
+  future enhancement).
+- **`create_variant = 'no_variant'` attributes are skipped** (these are
+  product-level attributes like "composition: 100% cotton," not variant-defining
+  ones) — a future enhancement.
 
 ## Alternatives considered
 
-- **Маппить display_type → inputType (color→SWATCH, etc.).** Отброшено: SWATCH
-  требует hex/файл, добавляет ветвление в create/resolve без ценности в MVP.
-- **NUMERIC для размеров обуви.** Отброшено: размеры выбираются из списка, DROPDOWN
-  достаточно; NUMERIC усложнил бы резолв значений.
+- **Map `display_type` → `inputType` (color→SWATCH, etc.).** Rejected: SWATCH
+  requires a hex value/file and adds branching to create/resolve logic without
+  adding value for the MVP.
+- **NUMERIC for shoe sizes.** Rejected: sizes are selected from a list, so DROPDOWN
+  is sufficient; NUMERIC would complicate value resolution.
 
 ## Consequences
 
-**Pros:** одна форма мутаций (create attribute, create value, assign, variant
-attributes) — минимум ветвления; предсказуемо.
+**Pros:** a single shape for all the mutations involved (create attribute, create
+value, assign, variant attributes) — minimal branching, predictable.
 
-**Cons:** цветовые свотчи на витрине будут текстом («Red»), не плашкой цвета — UX
-долг, закрывается Phase 4 (SWATCH + html_color). Числовые/текстовые атрибуты пока
-недоступны. Помечено как out of scope.
+**Cons:** color swatches on the storefront will render as text ("Red") rather than
+a color chip — a UX gap to be addressed in a future iteration (SWATCH +
+html_color). Numeric/text attributes aren't supported yet. Marked as out of scope
+for now.

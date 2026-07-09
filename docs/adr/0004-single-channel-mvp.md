@@ -1,43 +1,43 @@
-# ADR-0004: Single channel `default-channel` (UZS) для MVP
+# ADR-0004: Single channel `default-channel` for the MVP
 
 ## Status
 Accepted (2026-05-21)
 
 ## Context
 
-Saleor моделирует мульти-площадку через `Channel` — каждый channel имеет свою currency, language, country, pricelist (`ProductVariantChannelListing.price`).
+Saleor models a multi-storefront setup through `Channel` — each channel has its own currency, language, country, and pricelist (`ProductVariantChannelListing.price`).
 
-У нас сейчас один: `default-channel`, UZS, RU/UZ языки в одном UI. Заказчик — Узбекистан (B2C). Опт (B2B) и российская площадка пока вне scope.
+Right now we have exactly one: `default-channel`, using the channel currency, with UI support for two languages. The current deployment targets a single B2C market; wholesale (B2B) and any additional storefront are out of scope for now.
 
-Полная поддержка multi-channel в sync = N итераций `productVariantChannelListingUpdate` на каждый product update + N pricelist'ов в Odoo + N маппинговых записей. Это +30% сложности кода и +50% времени тестирования.
+Full multi-channel support in the sync layer means N iterations of `productVariantChannelListingUpdate` per product update, plus N pricelists in Odoo and N mapping records. That's roughly +30% code complexity and +50% testing time.
 
 ## Decision
 
-**В Phase 3 — только один channel: `default-channel`.**
+**For now — only one channel: `default-channel`.**
 
-Конкретно это значит:
-- Sync товаров создаёт ровно один `ProductChannelListing` и ровно один `ProductVariantChannelListing` per variant.
-- Цена берётся из `product.template.list_price` (без pricelist lookup).
-- Заказы фильтруются `channel.slug = 'default-channel'`.
-- В `saleor.binding` нет колонки `channel_id`.
+Concretely, this means:
+- Product sync creates exactly one `ProductChannelListing` and exactly one `ProductVariantChannelListing` per variant.
+- Price is taken from `product.template.list_price` (no pricelist lookup).
+- Orders are filtered by `channel.slug = 'default-channel'`.
+- `saleor.binding` has no `channel_id` column.
 
-Multi-channel — отдельный ADR в Phase 4 (когда появится российская/опт площадка). Миграция будет non-breaking: добавим `channel_id`-поле в `saleor.binding` с дефолтом текущего, заполним для существующих записей.
+Multi-channel support is a separate future ADR (once a wholesale or additional storefront channel is needed). The migration will be non-breaking: we'll add a `channel_id` field to `saleor.binding` defaulting to the current channel, and backfill it for existing records.
 
 ## Alternatives considered
 
-1. **Сразу делать мульти-channel-ready схему.** **Отброшено:** YAGNI. Усложнит Phase 3.1-3.5 без бизнес-выгоды сейчас.
+1. **Build a multi-channel-ready schema from day one.** **Rejected:** YAGNI. Would add complexity to the order/catalog/stock/variant sync work without any business benefit right now.
 
-2. **Один Saleor instance, два warehouse'а как proxy для multi-region.** **Отброшено:** warehouse ≠ channel в Saleor. Цены multi-region всё равно требуют channel.
+2. **One Saleor instance, two warehouses as a proxy for multi-region.** **Rejected:** a warehouse is not a channel in Saleor. Multi-region pricing still requires a channel.
 
 ## Consequences
 
 **Pros:**
-- Упрощённый sync-код (~30% меньше LOC).
-- Меньше edge-cases (нет per-channel price override conflicts).
-- Быстрее доставить MVP.
+- Simpler sync code (~30% fewer LOC).
+- Fewer edge cases (no per-channel price override conflicts).
+- Faster to deliver the MVP.
 
 **Cons:**
-- Когда понадобится RU-channel — будет одноразовая миграция (схема + данные).
-- Hardcoded `channel.slug == 'default-channel'` в нескольких местах — придётся вычистить.
+- When an additional channel is needed, there will be a one-time migration (schema + data).
+- Hardcoded `channel.slug == 'default-channel'` in a few places will need to be cleaned up.
 
-**Mitigation:** все hardcoded ссылки на `'default-channel'` в коде middleware идут через `Settings.saleor_default_channel: str = 'default-channel'`. Cleanup в Phase 4 = `grep -r saleor_default_channel` + замена на per-call параметр.
+**Mitigation:** all hardcoded references to `'default-channel'` in the middleware code go through `Settings.saleor_default_channel: str = 'default-channel'`. Future cleanup is `grep -r saleor_default_channel` + replacing it with a per-call parameter.

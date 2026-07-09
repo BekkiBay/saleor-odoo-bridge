@@ -1,7 +1,7 @@
-"""Integration-lite: sync_attribute_to_saleor с FakeOdoo + respx Saleor (Phase 3.5, S1).
+"""Integration-lite: sync_attribute_to_saleor with FakeOdoo + respx Saleor.
 
-Полный flow: attributeCreate → attributeValueCreate×3 → hasVariants=True → assign.
-Проверяем bindings (attribute + 3 values) и форму мутаций.
+Full flow: attributeCreate → attributeValueCreatex3 → hasVariants=True → assign.
+Checks bindings (attribute + 3 values) and the shape of the mutations.
 """
 
 from __future__ import annotations
@@ -80,14 +80,14 @@ async def test_attribute_sync_creates_attribute_values_and_assigns():
     assert res.ok is True
 
     bodies = [json.loads(c.request.content) for c in route.calls]
-    # attribute создан как PRODUCT/DROPDOWN
+    # attribute created as PRODUCT/DROPDOWN
     create = [b for b in bodies if "attributeCreate(" in b["query"]]
     assert len(create) == 1
     assert create[0]["variables"]["input"]["type"] == "PRODUCT_TYPE"
     assert create[0]["variables"]["input"]["inputType"] == "DROPDOWN"
-    # 3 значения созданы
+    # 3 values created
     assert sum("attributeValueCreate(" in b["query"] for b in bodies) == 3
-    # hasVariants включён + атрибут назначен как VARIANT
+    # hasVariants enabled + attribute assigned as VARIANT
     assert any("productTypeUpdate(" in b["query"] for b in bodies)
     assign = [b for b in bodies if "productAttributeAssign(" in b["query"]]
     assert assign[0]["variables"]["operations"][0]["type"] == "VARIANT"
@@ -105,7 +105,7 @@ async def test_attribute_value_event_syncs_parent():
     respx.post(_URL).mock(side_effect=_router)
     odoo = _odoo()
     client = SaleorClient(api_url=_URL, app_token="t")
-    # событие на значении (id=2) → синкается родительский атрибут (id=42)
+    # event on a value (id=2) → syncs the parent attribute (id=42)
     res = await sync_attribute_to_saleor(
         2, client, odoo, BindingRepository(odoo), product_type_id=_PT, model="product.attribute.value"
     )

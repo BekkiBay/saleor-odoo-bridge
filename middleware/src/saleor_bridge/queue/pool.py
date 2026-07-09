@@ -1,4 +1,4 @@
-"""arq Redis pool helper для enqueue из FastAPI."""
+"""arq Redis pool helper for enqueueing from FastAPI."""
 
 from __future__ import annotations
 

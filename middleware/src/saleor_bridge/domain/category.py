@@ -9,4 +9,4 @@ class ProductCategory(BaseModel):
     external_id: str  # Odoo product.category id as string
     name: str
     parent_external_id: str | None = None  # None = root category
-    complete_name: str = ""  # "Одежда / Платья" — для дебага и для slug
+    complete_name: str = ""  # e.g. "Clothing / Dresses" — for debugging and for slug

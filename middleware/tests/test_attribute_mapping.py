@@ -1,4 +1,4 @@
-"""Odoo product.attribute / .value → domain.Attribute маппинг (Phase 3.5)."""
+"""Odoo product.attribute / .value → domain.Attribute mapping."""
 
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ async def test_attribute_maps_name_and_values():
 
 @pytest.mark.asyncio
 async def test_no_variant_attribute_skipped():
-    # create_variant='no_variant' (материал/состав) — product-level, Phase 4 → None.
+    # create_variant='no_variant' (material/composition) — product-level, maps to None.
     assert await fetch_attribute(_odoo(), 20) is None
 
 

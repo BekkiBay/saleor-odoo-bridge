@@ -1,18 +1,18 @@
-"""Standalone unit test for the pure justix_status mapping (no Odoo runtime).
+"""Standalone unit test for the pure fulfillment_status mapping (no Odoo runtime).
 
 Imports the module by file path so it runs under plain pytest without Odoo on
-the path — justix_status.py has zero Odoo imports by design.
+the path — fulfillment_status.py has zero Odoo imports by design.
 """
 from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
 
-_MOD = Path(__file__).resolve().parents[1] / "models" / "justix_status.py"
-_spec = importlib.util.spec_from_file_location("justix_status", _MOD)
-justix_status = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(justix_status)
-compute = justix_status.compute_justix_status
+_MOD = Path(__file__).resolve().parents[1] / "models" / "fulfillment_status.py"
+_spec = importlib.util.spec_from_file_location("fulfillment_status", _MOD)
+fulfillment_status = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(fulfillment_status)
+compute = fulfillment_status.compute_fulfillment_status
 
 
 def test_draft_is_paid():

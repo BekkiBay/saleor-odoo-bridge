@@ -1,10 +1,10 @@
-"""Inbound endpoint: Odoo → middleware (reverse flow, Phase 3.2).
+"""Inbound endpoint: Odoo → middleware (reverse flow).
 
 Flow (ADR-0011, ADR-0013):
 1. Validate shared secret (constant-time).      <10ms
-2. Enqueue arq job (dedup по (model, id)).
+2. Enqueue arq job (dedup by (model, id)).
 3. Return 200 fast (Odoo native webhook timeout ~1s).
-Вся работа — в arq worker (fetch из Odoo + push в Saleor).
+All the work happens in the arq worker (fetch from Odoo + push to Saleor).
 """
 
 from __future__ import annotations
@@ -50,11 +50,11 @@ async def receive_odoo_event(
         return JSONResponse({"ok": False, "error": "invalid secret"}, status_code=401)
 
     pool = request.app.state.arq_pool
-    # defer ~3s: base.automation стреляет ВНУТРИ транзакции Odoo (до commit);
-    # даём Odoo закоммитить, чтобы worker прочитал свежую запись по JSON-2.
-    # _job_id с 5-сек бакетом: схлопывает burst (race «два write подряд»), но
-    # НЕ блокирует более поздние правки (иначе keep_result=1h съедал бы апдейты).
-    # Выживший в бакете job всё равно читает СВЕЖУЮ запись из Odoo → видит последнее.
+    # defer ~3s: base.automation fires INSIDE the Odoo transaction (before commit);
+    # give Odoo time to commit so the worker reads the fresh record over JSON-2.
+    # _job_id with a 5-sec bucket: collapses bursts (the "two writes in a row" race), but
+    # does NOT block later edits (otherwise keep_result=1h would swallow updates).
+    # Whichever job survives the bucket still reads the FRESH record from Odoo → sees the latest.
     bucket = int(time.time() // 5)
     job = await pool.enqueue_job(
         "sync_odoo_record_to_saleor",

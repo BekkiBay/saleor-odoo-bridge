@@ -2,13 +2,13 @@
 # Бэкап: pg_dump + tar.gz filestore из volume odoo-web-data.
 # Использование:
 #   ./scripts/backup.sh [db_name]
-# По умолчанию db_name=marketplace.
+# Defaults to $ODOO_DB_NAME, or "odoo".
 
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-DB_NAME="${1:-marketplace}"
+DB_NAME="${1:-${ODOO_DB_NAME:-odoo}}"
 TS="$(date +%Y-%m-%d_%H-%M)"
 BACKUP_DIR="./backups/${TS}"
 

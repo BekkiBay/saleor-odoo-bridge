@@ -1,46 +1,47 @@
-"""sale.order: canonical Justix status (unified across storefront + Odoo).
+"""sale.order: canonical fulfillment status (unified across storefront + Odoo).
 
 Single source of the customer-facing 5-step status. Computed from Odoo's own
 state + pickings + a manual delivered flag, displayed in Odoo, and pushed to
-Saleor order metadata (justix_status) by the middleware so the storefront reads
-the same value. Mapping lives in models/justix_status.py (pure, unit-tested).
+Saleor order metadata (fulfillment_status) by the middleware so the storefront
+reads the same value. Mapping lives in models/fulfillment_status.py (pure,
+unit-tested).
 """
 from odoo import api, fields, models
 
-from .justix_status import compute_justix_status
+from .fulfillment_status import compute_fulfillment_status
 
 _STATUS_SELECTION = [
-    ("paid", "Оплачен"),
-    ("assembling", "Собирается"),
-    ("shipped", "Отгружен"),
-    ("delivered", "Доставлен"),
-    ("cancelled", "Отменён"),
+    ("paid", "Paid"),
+    ("assembling", "Assembling"),
+    ("shipped", "Shipped"),
+    ("delivered", "Delivered"),
+    ("cancelled", "Cancelled"),
 ]
 
 
 class SaleOrder(models.Model):
     _inherit = "sale.order"
 
-    justix_delivered = fields.Boolean(
-        string="Доставлен клиенту",
+    delivered_to_customer = fields.Boolean(
+        string="Delivered to customer",
         copy=False,
-        help="Отметка склада/курьера: заказ доставлен покупателю. "
-             "Двигает единый статус в «Доставлен».",
+        help="Set by warehouse/courier staff once the order reaches the buyer. "
+             "Moves the unified status to 'Delivered'.",
     )
-    justix_status = fields.Selection(
+    fulfillment_status = fields.Selection(
         selection=_STATUS_SELECTION,
-        string="Статус Justix",
-        compute="_compute_justix_status",
+        string="Fulfillment status",
+        compute="_compute_fulfillment_status",
         store=True,
-        help="Единый статус заказа, как его видит покупатель. Источник правды; "
-             "пушится в Saleor metadata justix_status.",
+        help="Unified order status as the customer sees it. Source of truth; "
+             "pushed to Saleor order metadata under the key 'fulfillment_status'.",
     )
 
-    @api.depends("state", "justix_delivered", "picking_ids.state")
-    def _compute_justix_status(self):
+    @api.depends("state", "delivered_to_customer", "picking_ids.state")
+    def _compute_fulfillment_status(self):
         for so in self:
-            so.justix_status = compute_justix_status(
+            so.fulfillment_status = compute_fulfillment_status(
                 so.state,
-                so.justix_delivered,
+                so.delivered_to_customer,
                 any(p.state == "done" for p in so.picking_ids),
             )

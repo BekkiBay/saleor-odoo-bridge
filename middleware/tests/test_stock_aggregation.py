@@ -1,4 +1,4 @@
-"""Агрегация stock.quant → StockLevel (ADR-0015, ADR-0017)."""
+"""Aggregation of stock.quant → StockLevel (ADR-0015, ADR-0017)."""
 
 from __future__ import annotations
 
@@ -45,6 +45,6 @@ async def test_no_quants_is_zero():
 
 @pytest.mark.asyncio
 async def test_fractional_quants_floored():
-    # 2.9 + 1.4 = 4.3 → floor 4 (консервативно против оверселла)
+    # 2.9 + 1.4 = 4.3 → floor 4 (conservative against overselling)
     levels = await fetch_aggregated_stock(_odoo([2.9, 1.4]), 5, _WH, safety_buffer=0)
     assert levels[0].raw_quantity == 4

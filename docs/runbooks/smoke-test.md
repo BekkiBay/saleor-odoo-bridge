@@ -1,63 +1,69 @@
-# Runbook — Smoke test Saleor → Middleware → Odoo (local, без ngrok)
+# Runbook — Smoke test Saleor → Middleware → Odoo (local, without ngrok)
 
-Доказывает что цепочка работает end-to-end через **настоящий Saleor с настоящей
-подписью JWS** (не прямой enqueue). Local-only: Saleor и middleware на одной
-машine, общаются через `host.docker.internal`. **macOS работает из коробки.**
+Proves the chain works end-to-end using a **real Saleor instance with a real
+JWS signature** (not a direct enqueue). Local-only: Saleor and the middleware
+run on the same machine and talk via `host.docker.internal`. **Works out of
+the box on macOS.**
 
-Автоматический прогон одной командой:
+Automated one-command run:
 
 ```bash
-cd odoo-saleor-integration
-.venv/bin/python scripts/smoke_test.py            # exit 0 = OK; App удаляется в конце
-.venv/bin/python scripts/smoke_test.py --keep-app # оставить App для инспекции
+.venv/bin/python scripts/smoke_test.py            # exit 0 = OK; the App is removed at the end
+.venv/bin/python scripts/smoke_test.py --keep-app # keep the App around for inspection
 ```
 
-Ниже — ручная версия + объяснение каждого шага.
+Below is the manual version, with an explanation of each step.
 
-## Предусловия
+## Preconditions
 
-1. **Контейнеры подняты** — оба стека:
+1. **Containers are up** — this stack, plus your own Saleor instance:
    ```bash
-   cd odoo-saleor-integration && docker compose up -d        # odoo, db, redis, middleware, middleware-worker
-   cd ../saleor && docker compose up -d                       # saleor-api, worker, db, cache, ...
+   docker compose up -d        # db, odoo, redis, middleware, middleware-worker
    ```
-2. **Odoo настроен** (saleor_sync installed):
+   Also start your own Saleor instance (this bridge expects it reachable at
+   `BRIDGE_SALEOR_API_URL`, default `http://localhost:8000/graphql/`) — this
+   repo does not ship a Saleor stack.
+2. **Odoo is configured** (saleor_sync installed):
    ```bash
-   cd odoo-saleor-integration && .venv/bin/python scripts/odoo_setup.py --reset
+   .venv/bin/python scripts/odoo_setup.py --reset
    # 15/15 checks, "5 modules installed: account, contacts, sale_management, saleor_sync, stock"
    ```
-3. **Odoo API key** в `.env` (`BRIDGE_ODOO_API_KEY`):
+3. **Odoo API key** in `.env` (`BRIDGE_ODOO_API_KEY`):
    ```bash
    .venv/bin/python scripts/generate_api_key.py
    ```
-4. **Middleware public URL** в `.env`:
+4. **Middleware public URL** in `.env`:
    ```
    BRIDGE_MIDDLEWARE_PUBLIC_URL=http://host.docker.internal:8080
    ```
-   После правки `.env` пересоздать (НЕ `restart` — он не перечитывает env):
+   After editing `.env`, recreate the containers (NOT `restart` — it doesn't
+   reread env vars):
    ```bash
    docker compose up -d middleware middleware-worker
    ```
 
-## Saleor-side настройки для local app install (ВАЖНО)
+## Saleor-side configuration for local app install (IMPORTANT)
 
-Saleor по умолчанию блокирует приложения и их вебхуки. Для local smoke в
-`saleor/`:
+By default, Saleor blocks apps and their webhooks from installing against
+local/private addresses. For a local smoke test, configure your own Saleor
+instance to allow the bridge's public URL:
 
-- **`common.env`**: `HTTP_IP_FILTER_ENABLED=False` — иначе Saleor отвергает
-  установку App с manifest на private IP (`host.docker.internal` → 192.168.65.254)
-  с ошибкой `Failed to install app. Error: 192.168.65.254`.
-  ⚠️ Это отключает SSRF-защиту. **Только local. В prod — `True` + public HTTPS URL.**
-- **`docker-compose.override.yml`**: `ALLOWED_HOSTS` содержит `host.docker.internal`
-  — иначе middleware фетчит JWKS с `http://host.docker.internal:8000/.well-known/jwks.json`
-  и Django отвечает `400 DisallowedHost`.
+- **`HTTP_IP_FILTER_ENABLED=False`** — otherwise Saleor refuses to install an
+  App whose manifest resolves to a private IP (`host.docker.internal` →
+  something like `192.168.65.254`), failing with
+  `Failed to install app. Error: 192.168.65.254`.
+  ⚠️ This disables SSRF protection. **Local only. In production, keep it
+  `True` and use a public HTTPS URL.**
+- **`ALLOWED_HOSTS`** must include `host.docker.internal` — otherwise, when
+  the middleware fetches JWKS from
+  `http://host.docker.internal:8000/.well-known/jwks.json`, Django responds
+  `400 DisallowedHost`.
 
-После правки — пересоздать (env_file читается только при создании):
-```bash
-cd saleor && docker compose up -d --force-recreate api worker
-```
+After changing your Saleor instance's configuration, recreate its containers
+so the new environment takes effect (env files are only read at container
+creation) — refer to your own Saleor deployment's docs for the exact command.
 
-## Шаги
+## Steps
 
 ### 1. Health
 ```bash
@@ -75,24 +81,24 @@ curl -s -X POST http://localhost:8000/graphql/ -H "Content-Type: application/jso
 ```graphql
 mutation {
   appInstall(input:{
-    appName:"Justix Odoo Sync (Smoke)"
+    appName:"Saleor Odoo Sync (Smoke)"
     manifestUrl:"http://host.docker.internal:8080/api/manifest"
     activateAfterInstallation:true
     permissions:[MANAGE_ORDERS,MANAGE_PRODUCTS,MANAGE_USERS,MANAGE_PRODUCT_TYPES_AND_ATTRIBUTES,MANAGE_CHANNELS]
   }){ appInstallation{ id status } errors{ field message permissions } }
 }
 ```
-Header: `Authorization: Bearer <admin_token>`. Опрашивать `appsInstallations` до
-`status=SUCCESS` (или исчезновения из списка). Если App с таким именем уже есть —
-сначала `appDelete`.
+Header: `Authorization: Bearer <admin_token>`. Poll `appsInstallations` until
+`status=SUCCESS` (or it disappears from the list). If an App with this name
+already exists, run `appDelete` first.
 
-После установки Saleor:
-1. GET `/api/manifest` (200),
-2. POST `/api/register` → middleware кладёт токен в Redis под
-   `saleor_bridge:apl:<saleor_api_url>` (НЕ `app:<domain>`),
-3. создаёт 6 webhooks из манифеста.
+After installation, Saleor:
+1. GETs `/api/manifest` (200),
+2. POSTs `/api/register` → the middleware stores the token in Redis under
+   `saleor_bridge:apl:<saleor_api_url>` (NOT `app:<domain>`),
+3. creates 6 webhooks from the manifest.
 
-Проверка:
+Check:
 ```bash
 docker compose exec redis redis-cli KEYS "saleor_bridge:apl:*"
 ```
@@ -104,7 +110,7 @@ mutation { customerCreate(input:{
 }){ user{ id email } errors{ message } } }
 ```
 
-### 5. Верификация (~6с спустя)
+### 5. Verification (~6s later)
 
 **middleware** (`docker compose logs --tail=80 middleware`):
 ```
@@ -126,27 +132,29 @@ customer_synced created=True odoo_partner_id=<int> saleor_id=<base64>
 ```
 
 ### 6. Idempotency
-`customerUpdate` (меняем `note` чтобы Saleor реально послал CUSTOMER_UPDATED) →
-в Odoo НЕ появляется дубль (1 partner), `last_sync_in` свежее.
+`customerUpdate` (change `note` so Saleor actually sends CUSTOMER_UPDATED) →
+Odoo does NOT create a duplicate (still 1 partner), `last_sync_in` is fresher.
 
 ### 7. Cleanup
-`appDelete` для "Justix Odoo Sync (Smoke)". `smoke_test.py` делает это сам (без
-`--keep-app`). Smoke-test partner в Odoo оставляем как доказательство.
+`appDelete` for "Saleor Odoo Sync (Smoke)". `smoke_test.py` does this itself
+(unless run with `--keep-app`). The smoke-test partner in Odoo is left in
+place as evidence it worked.
 
-## Подводные камни (проверено)
+## Known pitfalls (verified)
 
-| Симптом | Причина | Fix |
+| Symptom | Cause | Fix |
 |---|---|---|
-| `restart` не подхватил env | `docker compose restart` не перечитывает `.env`/`env_file` | `docker compose up -d <svc>` |
-| `Failed to install app. Error: 192.168.65.254` | Saleor SSRF IP filter блокирует private IP | `HTTP_IP_FILTER_ENABLED=False` (local) |
-| webhook 401 `jwks fetch failed: All connection attempts failed` | Saleor анонсит `localhost:8000`, недостижим из контейнера | middleware тянет JWKS с `BRIDGE_SALEOR_API_URL` (host.docker.internal) |
-| webhook 401 `400 DisallowedHost` на JWKS | `host.docker.internal` не в `ALLOWED_HOSTS` | добавить в `saleor/docker-compose.override.yml` |
-| webhook 401 `bad_signature` | Saleor подписывает RFC 7797 `b64:false`; middleware верифай ждал `b64:true` | fix в `signature.py` (поддержка b64:false) |
-| odoo shell `${...}` не подставлен | shell с `-c /etc/odoo/odoo.conf` (там сырой `${}`) | использовать `/tmp/odoo.conf` (entrypoint подставляет env) |
+| `restart` didn't pick up env changes | `docker compose restart` doesn't reread `.env`/`env_file` | `docker compose up -d <svc>` |
+| `Failed to install app. Error: 192.168.65.254` | Saleor's SSRF IP filter blocks the private IP | `HTTP_IP_FILTER_ENABLED=False` (local only) |
+| webhook 401 `jwks fetch failed: All connection attempts failed` | Saleor announces `localhost:8000`, unreachable from inside the container | the middleware fetches JWKS from `BRIDGE_SALEOR_API_URL` (host.docker.internal) instead |
+| webhook 401 `400 DisallowedHost` on JWKS | `host.docker.internal` not in `ALLOWED_HOSTS` | add it to your Saleor instance's `ALLOWED_HOSTS` configuration |
+| webhook 401 `bad_signature` | Saleor signs with RFC 7797 `b64:false`; the middleware's verifier expected `b64:true` | fixed in `signature.py` (supports `b64:false`) |
+| odoo shell `${...}` not substituted | shell run with `-c /etc/odoo/odoo.conf` (raw `${}` in there) | use `/tmp/odoo.conf` (the entrypoint substitutes env vars into it) |
 
-## Prod (Phase 4) — чем отличается
+## Production — how it differs
 
-- Public HTTPS URL (ngrok/Cloudflare/реальный домен) вместо `host.docker.internal`.
-- `HTTP_IP_FILTER_ENABLED=True`, реальный домен в `ALLOWED_HOSTS`.
-- Saleor `PUBLIC_URL` = публичный домен → `saleor-api-url` в вебхуках корректный,
-  отдельный JWKS-override в middleware не нужен.
+- A public HTTPS URL (ngrok/Cloudflare/a real domain) instead of
+  `host.docker.internal`.
+- `HTTP_IP_FILTER_ENABLED=True`, the real domain listed in `ALLOWED_HOSTS`.
+- Saleor's `PUBLIC_URL` = the public domain → `saleor-api-url` in webhooks is
+  correct, so the middleware doesn't need a separate JWKS override.

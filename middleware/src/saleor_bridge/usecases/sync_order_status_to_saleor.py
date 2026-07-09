@@ -1,8 +1,9 @@
-"""Usecase: order lifecycle Odoo → Saleor (Phase 3.4, ADR-0019).
+"""Usecase: order lifecycle Odoo → Saleor (ADR-0019).
 
-Worker перечитывает состояние из Odoo и решает мутацию. Binding sale.order
-(odoo_id ↔ Saleor order id) создаёт Phase 3.1. Заказы без binding (созданные
-вручную в Odoo) пропускаем — это не Saleor-заказы.
+The worker re-reads the state from Odoo and decides the mutation. The sale.order
+binding (odoo_id ↔ Saleor order id) is created when the order is first synced.
+Orders without a binding (created manually in Odoo) are skipped — they are not
+Saleor orders.
 """
 
 from __future__ import annotations
@@ -25,7 +26,7 @@ _SO = "sale.order"
 
 
 def decide_order_action(state: str | None) -> str | None:
-    """Odoo sale.order.state → действие (pure, тестируемо). ADR-0019."""
+    """Odoo sale.order.state → action (pure, testable). ADR-0019."""
     if state == "sale":
         return "confirm"
     if state == "cancel":

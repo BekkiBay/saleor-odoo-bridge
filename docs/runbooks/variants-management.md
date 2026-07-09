@@ -1,9 +1,10 @@
-# Runbook — Variants & Attributes Odoo ↔ Saleor (Phase 3.5)
+# Runbook — Variants & Attributes Odoo ↔ Saleor
 
-Синхронизация атрибутов (цвет/размер/…) и вариантов из Odoo на витрину Saleor.
-Источник истины — Odoo. См. ADR-0023..0027 (и ADR-0007/0012 как базу).
+Syncs attributes (color/size/…) and variants from Odoo to the Saleor
+storefront. Odoo is the source of truth. See ADR-0023..0027 (and
+ADR-0007/0012 as the base).
 
-## Архитектура
+## Architecture
 
 ```
 Odoo product.attribute / .value  ──┐
@@ -17,7 +18,7 @@ Odoo product.template.attribute.value (PTAV)
                                    │
 Odoo product.product (variant)     │
    trigger(default_code, barcode, active)
-   + stock.quant(quantity) → product.product (Phase 3.3)
+   + stock.quant(quantity) → product.product (see stock-sync.md)
                                    ▼
 POST {middleware}/api/odoo-events?secret=…   {odoo_model, odoo_id, action}
    │ validate secret → enqueue arq (defer ~3s, dedup model+id+5s bucket) → 200
@@ -26,87 +27,97 @@ arq worker: sync_odoo_record_to_saleor →
    • product.attribute[.value] → sync_attribute_to_saleor
        ensure Attribute (DROPDOWN/PRODUCT) + values + assign VARIANT to "Generic" (hasVariants=true)
    • product.template → sync_product_to_saleor + sync_template_variants_to_saleor
-       реконсиляция набора вариантов (create bulk / adopt / delete) + цены
+       reconciles the variant set (bulk create / adopt / delete) + prices
    • product.product → sync_variant_to_saleor (ensure variant + price + attrs) → sync_stock_to_saleor
 ```
 
-**Ключевое:**
-- Одно событие `product.product` приходит от ДВУХ триггеров (variant-поля И
-  `stock.quant`). Дедуп-бакет без `action`, поэтому handler делает оба: ensure
-  варианта, затем остаток (ADR-0017). Идемпотентно → коллизия в бакете безопасна.
-- `lst_price` на варианте — **non-stored compute**, триггером быть не может. Цены
-  идут через `product.template` (list_price) и PTAV (`price_extra`), ADR-0026.
+**Important:**
+- A single `product.product` event can come from TWO triggers (variant
+  fields AND `stock.quant`). The dedup bucket ignores `action`, so the
+  handler does both: ensures the variant, then syncs stock (ADR-0017).
+  Idempotent, so a bucket collision is safe.
+- `lst_price` on a variant is a **non-stored compute field** and can't be a
+  trigger. Prices flow through `product.template` (list_price) and PTAV
+  (`price_extra`) instead, ADR-0026.
 
-## Предусловия
+## Preconditions
 
-1. Каталог засеян (Phase 3.2) и варианты мигрированы (`bulk-seed-variants`).
-2. Стек поднят: `docker compose ps` → db, odoo, redis, middleware, middleware-worker.
-3. Модуль `saleor_sync` обновлён до v0.5 (variant/attribute automations):
+1. The catalog has been seeded and variants migrated (`bulk-seed-variants`).
+2. The stack is up: `docker compose ps` → db, odoo, redis, middleware, middleware-worker.
+3. The `saleor_sync` module is updated to v0.5 (variant/attribute automations):
    ```bash
    docker compose exec odoo odoo -d marketplace -u saleor_sync --stop-after-init
    docker compose restart odoo
    ```
 
-## Операции
+## Operations
 
 ### Initial migration (existing single-variant → variant bindings)
 
 ```bash
 docker compose exec middleware python -m saleor_bridge.cli.bulk_seed bulk-seed-variants
 ```
-Усыновляет dummy-варианты (Phase 3.2), создаёт `saleor.binding(product.product)`.
-Идемпотентно — повторный прогон no-op. Ожидаемо: 30 templates → 30 variant bindings.
+Adopts the dummy variants created during catalog seeding, creates
+`saleor.binding(product.product)`. Idempotent — re-running is a no-op.
+Expected: N templates → N variant bindings.
 
-### Создать атрибут с значениями (S1)
+### Create an attribute with values (S1)
 
-В Odoo: Inventory → Configuration → Attributes → New. Имя «Color», Display Type
-любой (синкается как DROPDOWN, ADR-0027), `Variants Creation Mode` = `Instantly`
-или `Dynamically` (НЕ `Never` — `no_variant` скипается). Добавить значения
-Red/Blue/Green → Save. Webhook → Saleor Attribute + 3 values + assign к "Generic".
+In Odoo: Inventory → Configuration → Attributes → New. Name it "Color", any
+Display Type (it syncs as DROPDOWN, ADR-0027), `Variants Creation Mode` =
+`Instantly` or `Dynamically` (NOT `Never` — `no_variant` gets skipped). Add
+values Red/Blue/Green → Save. Webhook → Saleor Attribute + 3 values +
+assigned to "Generic".
 
-Проверка:
+Verify:
 ```bash
-# в Saleor должен появиться attribute "Color" с 3 values
-docker compose exec middleware python -c "import asyncio; ..."  # или verify_bindings.py
+# a "Color" attribute with 3 values should appear in Saleor
+docker compose exec middleware python -c "import asyncio; ..."  # or verify_bindings.py
 ```
 
-### Добавить варианты существующему товару (S2)
+### Add variants to an existing product (S2)
 
-В Odoo на `product.template`: вкладка Attributes & Variants → Add line → Color
-[Red, Blue], Size [S, M, L] → Save. Odoo создаст 6 `product.product`. Webhook
-(template + PTAV + product.product burst, схлопывается 5s-бакетом) →
-реконсиляция: dummy удалён, 6 вариантов созданы (bulk) с attribute-assignments и
-ценой `list_price`.
+In Odoo, on a `product.template`: Attributes & Variants tab → Add line →
+Color [Red, Blue], Size [S, M, L] → Save. Odoo creates 6 `product.product`
+records. Webhook (template + PTAV + product.product burst, collapsed by the
+5s bucket) → reconciliation: the dummy variant is removed, 6 variants are
+created (in bulk) with attribute assignments and the `list_price` price.
 
-### Надбавка за вариант (price_extra, S3)
+### Per-variant price surcharge (price_extra, S3)
 
-В Odoo: на PTAV (Attribute line → конкретное значение, напр. Size: L) поле
+In Odoo: on a PTAV (attribute line → a specific value, e.g. Size: L), set
 `Extra Price` = 50000 → Save. Webhook (PTAV trigger → template event) →
-реконсиляция переустановит цену вариантов: Saleor variant «Size L» = list_price + 50000.
+reconciliation resets the variant price: Saleor variant "Size L" = list_price
++ 50000.
 
-### Архивировать вариант (S4)
+### Archive a variant (S4)
 
-В Odoo: `product.product` → archive (active=False). Webhook → variant удаляется в
-Saleor (`productVariantDelete`, идемпотентно). Остальные варианты работают.
+In Odoo: `product.product` → archive (active=False). Webhook → the variant
+is deleted in Saleor (`productVariantDelete`, idempotent). Other variants
+keep working.
 
-## Подводные камни
+## Pitfalls
 
-- **Порядок создания в Saleor:** attribute → assign к ProductType → variant с
-  значением. Атрибуты синкать ДО вариантов, иначе `AttributeBindingMissing` → arq
-  retry (само сойдётся, но первый прогон может ретраить).
-- **SKU вариантов:** Odoo по умолчанию НЕ генерит `default_code` для авто-вариантов.
-  Задавайте SKU вручную, иначе fallback `odoo-<id>` (ADR-0024). SKU уникален глобально.
-- **Stock после пересоздания варианта:** delete+create меняет Saleor variant ID →
-  остаток на старом ID пропадает. Реконсиляция дёргает stock-sync для новых
-  вариантов; при сомнении — `bulk-seed-stocks` (ADR-0025).
-- **Burst webhook'ов:** 1 добавление attribute_line → N PTAV + M product.product
-  событий. 5s-бакет дедупит по (model, id). Если видите >50 событий на одно
-  изменение — проверьте, не зациклился ли skip-guard.
-- **`no_variant` атрибуты** (состав/материал) — скипаются (Phase 4, ADR-0027).
+- **Creation order in Saleor:** attribute → assign to ProductType → variant
+  with the value. Sync attributes BEFORE variants, otherwise
+  `AttributeBindingMissing` → arq retry (it converges on its own, but the
+  first run may retry).
+- **Variant SKUs:** Odoo does NOT generate `default_code` by default for
+  auto-created variants. Set the SKU manually, otherwise it falls back to
+  `odoo-<id>` (ADR-0024). SKUs must be globally unique.
+- **Stock after a variant is recreated:** delete+create changes the Saleor
+  variant ID → stock on the old ID disappears. Reconciliation triggers
+  stock-sync for the new variants; if in doubt, run `bulk-seed-stocks`
+  (ADR-0025).
+- **Webhook bursts:** adding one attribute_line produces N PTAV + M
+  product.product events. The 5s bucket dedups by (model, id). If you see
+  >50 events for a single change, check whether the skip-guard is stuck in
+  a loop.
+- **`no_variant` attributes** (composition/material) — skipped (future work, ADR-0027).
 
 ## Verify
 
 ```bash
 .venv/bin/python scripts/verify_bindings.py   # Products/Categories/Attributes/Variants
 ```
-Секции Attributes и Variants: orphan Odoo / dead binding / orphan Saleor / counts.
+Attributes and Variants sections: orphan Odoo / dead binding / orphan Saleor / counts.

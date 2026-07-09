@@ -1,18 +1,18 @@
 # See README.rst and ../../docs/decisions.md
 {
     "name": "Saleor Sync",
-    "version": "19.0.0.5.0",
+    "version": "19.0.0.6.0",
     "category": "Sales",
-    "summary": "Bidirectional sync with Saleor e-commerce (Phase 3.5: variants & attributes Odoo↔Saleor)",
+    "summary": "Bidirectional sync with Saleor: catalog, stock, orders, customers",
     "license": "LGPL-3",
-    "author": "Justix Market",
-    "website": "https://justix.uz",
+    "author": "saleor-odoo-bridge contributors",
+    "website": "https://github.com/BekkiBay/saleor-odoo-bridge",
     "depends": [
         "sale_management",
         "stock",
-        "stock_delivery",   # Phase 3.4: carrier_tracking_ref на stock.picking
+        "stock_delivery",   # carrier_tracking_ref on stock.picking
         "account",
-        "base_automation",  # Phase 3.2: триггеры outbound webhook'ов
+        "base_automation",  # triggers for outbound webhooks
     ],
     "data": [
         "security/ir.model.access.csv",

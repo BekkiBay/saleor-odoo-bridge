@@ -1,4 +1,4 @@
-"""Общие хелперы для Saleor GraphQL мутаций каталога."""
+"""Shared helpers for Saleor GraphQL catalog mutations."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from saleor_bridge.saleor.client import SaleorClient
 
 
 class SaleorError(RuntimeError):
-    """Saleor вернул top-level errors или mutation вернул errors{}."""
+    """Saleor returned top-level errors, or the mutation returned errors{}."""
 
 
 def _is_slug_unique_error(errors: list[dict]) -> bool:
@@ -27,9 +27,9 @@ async def run_mutation(
     variables: dict[str, Any],
     root: str,
 ) -> dict:
-    """Выполнить мутацию, вернуть payload под `root`. Бросает SaleorError при ошибках.
+    """Execute a mutation, return the payload under `root`. Raises SaleorError on errors.
 
-    `SaleorError` помечает slug-коллизию атрибутом `.slug_conflict` для retry.
+    `SaleorError` flags a slug collision via the `.slug_conflict` attribute for retry.
     """
     body = await client.execute(query, variables)
     if body.get("errors"):

@@ -43,7 +43,7 @@ COPY tests ./tests
 RUN uv pip install --python /opt/venv/bin/python -e .
 
 # ─── dev ─────────────────────────────────────────────────────────────────
-# Used by odoo-saleor-integration/docker-compose.yml; compose mounts ./src
+# Used by docker-compose.yml (repo root); compose mounts ./src
 # read-only over /app/src for live editing.
 FROM builder AS dev
 

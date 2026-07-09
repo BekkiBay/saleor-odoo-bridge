@@ -1,4 +1,4 @@
-"""Odoo → domain маппинг для stock: warehouse slug + variant ref."""
+"""Odoo → domain mapping for stock: warehouse slug + variant ref."""
 
 from __future__ import annotations
 
@@ -10,12 +10,12 @@ from tests.stock_fakes import FakeOdoo
 
 @pytest.mark.asyncio
 async def test_default_warehouse_slug_is_unique():
-    # slug = f"{slugify(code)}-{id}" — гарантия уникальности (подводные камни 3.3)
-    odoo = FakeOdoo(warehouses=[{"id": 7, "name": "Главный склад", "code": "WH"}])
+    # slug = f"{slugify(code)}-{id}" — guarantees uniqueness
+    odoo = FakeOdoo(warehouses=[{"id": 7, "name": "Main Warehouse", "code": "WH"}])
     wh = await fetch_default_warehouse(odoo)
     assert wh is not None
     assert wh.external_id == "7"
-    assert wh.name == "Главный склад"
+    assert wh.name == "Main Warehouse"
     assert wh.slug == "wh-7"
 
 

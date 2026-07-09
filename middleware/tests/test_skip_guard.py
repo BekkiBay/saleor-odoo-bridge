@@ -1,4 +1,4 @@
-"""Skip-guard (ADR-0020): Phase 3.1 write'ы несут saleor_sync_skip context."""
+"""Skip-guard (ADR-0020): Odoo writes carry a saleor_sync_skip context."""
 
 from __future__ import annotations
 

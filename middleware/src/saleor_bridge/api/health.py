@@ -1,10 +1,11 @@
-"""Health + readiness endpoints. Не падают при degraded deps."""
+"""Health + readiness endpoints."""
 
 from __future__ import annotations
 
 import httpx
 import redis.asyncio as redis
 from fastapi import APIRouter, Depends
+from fastapi.responses import JSONResponse
 
 from saleor_bridge.config import Settings, get_settings
 
@@ -22,7 +23,7 @@ async def _redis_ok(settings: Settings) -> bool:
 
 
 async def _odoo_ok(settings: Settings) -> bool:
-    """GET /web/version возвращает {version_info: [...], version: ...} в Odoo 19."""
+    """GET /web/version returns {version_info: [...], version: ...} on Odoo 19."""
     try:
         async with httpx.AsyncClient(timeout=2.0) as client:
             r = await client.get(f"{settings.odoo_url.rstrip('/')}/web/version")
@@ -33,7 +34,7 @@ async def _odoo_ok(settings: Settings) -> bool:
 
 @router.get("/health")
 async def health(settings: Settings = Depends(get_settings)) -> dict:
-    """Always HTTP 200; компоненты репортятся отдельно."""
+    """Liveness: always HTTP 200; each dependency is reported separately."""
     return {
         "status": "ok",
         "redis": "ok" if await _redis_ok(settings) else "fail",
@@ -42,13 +43,15 @@ async def health(settings: Settings = Depends(get_settings)) -> dict:
 
 
 @router.get("/ready")
-async def ready(settings: Settings = Depends(get_settings)) -> dict:
-    """Readiness probe — для kubernetes-стиля. Strict: 503 если что-то fail."""
+async def ready(settings: Settings = Depends(get_settings)) -> JSONResponse:
+    """Readiness probe: HTTP 503 unless every dependency answers.
+
+    Orchestrators route traffic on this, so a degraded bridge must not report
+    itself ready — it cannot enqueue or deliver a single event without Redis.
+    """
     redis_state = await _redis_ok(settings)
     odoo_state = await _odoo_ok(settings)
     body = {"redis": redis_state, "odoo": odoo_state}
     if redis_state and odoo_state:
-        return {"status": "ready", **body}
-    # Fast-fail readiness — но в Phase 3.0 не хотим разваливать compose,
-    # поэтому всё равно 200. В Phase 4 заменим на raise HTTPException(503).
-    return {"status": "degraded", **body}
+        return JSONResponse({"status": "ready", **body})
+    return JSONResponse({"status": "degraded", **body}, status_code=503)

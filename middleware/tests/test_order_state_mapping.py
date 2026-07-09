@@ -1,4 +1,4 @@
-"""Odoo sale.order.state → Saleor действие (ADR-0019). Pure decide_order_action."""
+"""Odoo sale.order.state → Saleor action (ADR-0019). Pure decide_order_action."""
 
 from __future__ import annotations
 
@@ -12,8 +12,8 @@ from saleor_bridge.usecases.sync_order_status_to_saleor import decide_order_acti
     [
         ("sale", "confirm"),
         ("cancel", "cancel"),
-        ("draft", None),    # ещё не оплачен → no-op
-        ("done", None),     # locked → no Saleor аналога
+        ("draft", None),    # not yet paid → no-op
+        ("done", None),     # locked → no Saleor equivalent
         (None, None),
         ("weird", None),
     ],

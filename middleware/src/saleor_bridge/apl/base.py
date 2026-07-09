@@ -1,4 +1,4 @@
-"""App Persistence Layer — interface для хранения {saleor_domain: app_token}.
+"""App Persistence Layer — interface for storing {saleor_domain: app_token}.
 
 Reference: https://docs.saleor.io/developer/extending/apps/developing-apps/app-sdk/apl
 """

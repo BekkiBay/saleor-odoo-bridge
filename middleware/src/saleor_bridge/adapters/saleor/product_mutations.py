@@ -1,6 +1,6 @@
-"""Saleor Product/Variant/ChannelListing мутации. Pure GraphQL; binding — в usecase.
+"""Saleor Product/Variant/ChannelListing mutations. Pure GraphQL; binding lives in the usecase.
 
-Phase 3.2: 1 product + 1 dummy variant (ADR-0012), без stock (ADR-0014).
+Creates 1 product + 1 dummy variant (ADR-0012), without stock (ADR-0014).
 """
 
 from __future__ import annotations
@@ -174,7 +174,7 @@ async def set_variant_price(
 
 
 async def fetch_product_state(client: SaleorClient, saleor_id: str) -> dict | None:
-    """Текущее состояние Saleor-продукта: name, metafields(dict), variants[]."""
+    """Current state of the Saleor product: name, metafields(dict), variants[]."""
     data = await query_data(client, _PRODUCT_STATE, {"id": saleor_id})
     return data.get("product")
 

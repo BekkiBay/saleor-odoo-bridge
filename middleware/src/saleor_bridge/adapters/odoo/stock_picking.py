@@ -1,8 +1,8 @@
-"""Read stock.picking + фактически отгруженные строки (Phase 3.4).
+"""Read stock.picking + the lines actually shipped.
 
-move_line_ids = фактические движения с done-количеством (`quantity`), в отличие от
-move_ids (планируемые). Маппим product → SKU (default_code) для резолва Saleor
-order line (ADR-0019, подводные камни).
+move_line_ids = the actual moves with the done quantity (`quantity`), as opposed to
+move_ids (planned). We map product → SKU (default_code) to resolve the Saleor
+order line (ADR-0019, gotchas apply).
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ def _m2o_id(value) -> int | None:
 
 
 async def fetch_picking_with_lines(odoo: OdooClient, picking_id: int) -> dict | None:
-    """→ {state, sale_order_id, tracking, sku_qty: {SKU: done_qty}} или None."""
+    """→ {state, sale_order_id, tracking, sku_qty: {SKU: done_qty}} or None."""
     rows = await odoo.read(
         _PICKING, [picking_id],
         ["state", "sale_id", "carrier_tracking_ref", "move_line_ids"],
@@ -34,7 +34,11 @@ async def fetch_picking_with_lines(odoo: OdooClient, picking_id: int) -> dict | 
     line_ids = p.get("move_line_ids") or []
     if line_ids:
         mls = await odoo.read(_MOVE_LINE, line_ids, ["product_id", "quantity"])
-        prod_ids = list({_m2o_id(ml.get("product_id")) for ml in mls if ml.get("product_id")})
+        prod_ids = [
+            pid
+            for pid in {_m2o_id(ml.get("product_id")) for ml in mls if ml.get("product_id")}
+            if pid is not None
+        ]
         prods = await odoo.read(_PRODUCT, prod_ids, ["default_code"]) if prod_ids else []
         code_by_id = {pr["id"]: (pr.get("default_code") or "").strip() for pr in prods}
         for ml in mls:

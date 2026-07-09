@@ -1,20 +1,19 @@
-# Operations — Odoo ↔ Saleor catalog (Phase 3.2)
+# Operations — Odoo ↔ Saleor catalog
 
-Операционные процедуры для каталожной синки. См. также `bulk-seed.md`,
-`hardening-results.md`.
+Operational procedures for catalog sync. See also `bulk-seed.md`.
 
-Все CLI-команды — внутри middleware-контейнера:
+All CLI commands run inside the middleware container:
 ```bash
-docker exec marketplace-middleware python -m saleor_bridge.cli.bulk_seed <cmd>
+docker compose exec middleware python -m saleor_bridge.cli.bulk_seed <cmd>
 ```
 
 ## 1. Retry failed sync
 
-Когда binding ушёл в `sync_state='failed'` (Saleor был недоступен и т.п.):
+When a binding went to `sync_state='failed'` (Saleor was unreachable, etc.):
 
 ```bash
-# 1. посмотреть failed bindings
-docker exec marketplace-middleware python -c "
+# 1. list failed bindings
+docker compose exec middleware python -c "
 import asyncio,os
 from saleor_bridge.odoo.client import OdooClient
 async def m():
@@ -22,79 +21,86 @@ async def m():
  print(await o.search_read('saleor.binding',[('sync_state','=','failed')],['model_name','odoo_id','error_message']))
 asyncio.run(m())"
 
-# 2. ретрай (outbound: product.template / product.category)
-docker exec marketplace-middleware python -m saleor_bridge.cli.bulk_seed retry-failed
+# 2. retry (outbound: product.template / product.category)
+docker compose exec middleware python -m saleor_bridge.cli.bulk_seed retry-failed
 ```
-`retry-failed` берёт все `failed` биндинги, заново гонит sync, печатает
-`found/ok/failed/skipped`. Inbound (res.partner/sale.order) пропускаются.
+`retry-failed` takes all `failed` bindings, re-runs the sync, and prints
+`found/ok/failed/skipped`. Inbound records (res.partner/sale.order) are skipped.
 
-В Odoo также видно в **Saleor Sync → Bindings** (фильтр Failed) и **→ Outbox**.
+This is also visible in Odoo under **Saleor Sync → Bindings** (Failed filter)
+and **→ Outbox**.
 
 ## 2. Verify binding integrity (cron-able)
 
 ```bash
-.venv/bin/python scripts/verify_bindings.py   # exit 0 ok, 1 — расхождения
+.venv/bin/python scripts/verify_bindings.py   # exit 0 ok, 1 = discrepancies found
 ```
-Проверяет orphan Odoo / dead binding / orphan Saleor / counts по products и
-каталожным категориям. Для cron: ставь на nightly, алерти при exit!=0.
+Checks for orphan Odoo records / dead bindings / orphan Saleor records /
+counts for products and catalog categories. For cron: run nightly, alert on
+exit != 0.
 
-Типовые расхождения и действия:
-| Находка | Действие |
+Typical discrepancies and what to do:
+| Finding | Action |
 |---|---|
-| orphan Odoo (товар без binding) | `retry-failed` или `bulk-seed` |
-| dead binding (saleor_id нет в Saleor) | `wipe` + `bulk-seed` (полный ресед) |
-| orphan Saleor (товар без binding) | удалить в Saleor вручную или `wipe`+`bulk-seed` |
-| count mismatch категорий | проверь parent-move divergence (см. §4) |
+| orphan Odoo (product without a binding) | `retry-failed` or `bulk-seed` |
+| dead binding (saleor_id no longer exists in Saleor) | `wipe` + `bulk-seed` (full reseed) |
+| orphan Saleor (product without a binding) | delete it in Saleor manually, or `wipe`+`bulk-seed` |
+| category count mismatch | check for parent-move divergence (see §4) |
 
 ## 3. Controlled archive / unarchive
 
-Archive товара в Odoo → unpublish в Saleor (не удаляет product):
+Archiving a product in Odoo unpublishes it in Saleor (does not delete the product):
 ```bash
-# UI: Inventory → Products → выбрать → Action → Archive
-# или JSON-2:
-docker exec -i odoo-app odoo shell -c /tmp/odoo.conf -d marketplace --no-http <<'PY'
+# UI: Inventory → Products → select → Action → Archive
+# or via JSON-2:
+docker compose exec -T odoo odoo shell -c /tmp/odoo.conf -d marketplace --no-http <<'PY'
 env['product.template'].browse(<ID>).write({'active': False}); env.cr.commit()
 PY
 ```
-Через ~5s Saleor: `isPublished=false, isAvailableForPurchase=false`. Unarchive
-(`active=True`) → publish обратно. Binding остаётся `synced`.
+After ~5s in Saleor: `isPublished=false, isAvailableForPurchase=false`.
+Unarchiving (`active=True`) publishes it again. The binding stays `synced`.
 
-## 4. Category re-parent (ОГРАНИЧЕНИЕ)
+## 4. Category re-parent (LIMITATION)
 
-⚠️ **Saleor API не поддерживает смену parent у категории** (`CategoryInput` без
-`parent`, move-мутации нет). Rename — синкается; **parent move — нет.**
+⚠️ **The Saleor API does not support changing a category's parent**
+(`CategoryInput` has no `parent`, and there's no move mutation). Renames sync
+fine; **parent moves do not.**
 
-Что произойдёт при move в Odoo: name обновится, parent в Saleor останется старым,
-binding → `sync_state='diverged'` + `error_message`, в логах worker
-`category_parent_diverged`. Это видно в **Bindings** (фильтр Diverged).
+What happens when you move a category in Odoo: the name updates, the parent
+in Saleor stays the same, the binding goes to `sync_state='diverged'` with an
+`error_message`, and the worker logs `category_parent_diverged`. Visible in
+**Bindings** (Diverged filter).
 
-Как реально перестроить дерево категорий в Saleor:
+To actually rebuild the category tree in Saleor:
 ```bash
-docker exec marketplace-middleware python -m saleor_bridge.cli.bulk_seed wipe --yes
-docker exec marketplace-middleware python -m saleor_bridge.cli.bulk_seed bulk-seed
+docker compose exec middleware python -m saleor_bridge.cli.bulk_seed wipe --yes
+docker compose exec middleware python -m saleor_bridge.cli.bulk_seed bulk-seed
 ```
-(`wipe` чистит и Saleor-каталог, и outbound bindings → reseed строит дерево заново.)
+(`wipe` clears both the Saleor catalog and the outbound bindings, so the
+reseed rebuilds the tree from scratch.)
 
 ## 5. Full reset / reseed
 
 ```bash
-docker exec marketplace-middleware python -m saleor_bridge.cli.bulk_seed wipe --yes     # DESTRUCTIVE
-docker exec marketplace-middleware python -m saleor_bridge.cli.bulk_seed bulk-seed
+docker compose exec middleware python -m saleor_bridge.cli.bulk_seed wipe --yes     # DESTRUCTIVE
+docker compose exec middleware python -m saleor_bridge.cli.bulk_seed bulk-seed
 .venv/bin/python scripts/verify_bindings.py
 ```
-`wipe` удаляет ВСЕ Saleor products+categories и ВСЕ outbound bindings (product.
-template/category/type). Без чистки bindings reseed ушёл бы в update по мёртвым id.
+`wipe` deletes ALL Saleor products+categories and ALL outbound bindings
+(product.template/category/type). Without clearing the bindings, a reseed
+would try to update against dead ids.
 
-## 6. Дедуп и гонки
+## 6. Dedup and race conditions
 
-- Webhook'и дедупятся в arq по `_job_id=odoo:<model>:<id>:<5s-bucket>` (+ `_defer_by=3`).
-- Конкурентное создание категории защищено Redis-локом
-  `saleor_bridge:lock:product.category:<id>` + partial unique index
+- Webhooks are deduped in arq via `_job_id=odoo:<model>:<id>:<5s-bucket>` (+ `_defer_by=3`).
+- Concurrent category creation is protected by a Redis lock
+  `saleor_bridge:lock:product.category:<id>` plus a partial unique index
   `saleor_binding_model_odoo_uniq (model_name,odoo_id) WHERE odoo_id!=0`.
 
-## 7. Known noise (Phase 4)
+## 7. Known noise
 
-При массовых операциях в Odoo (или setup с лежащим middleware) `saleor.outbox`
-накапливает `failed`-строки и автоматизация срабатывает многократно на одну запись
-(нет `trigger_field_ids`). Не ломает синку (idempotent + dedup). Prune outbox при
-необходимости; сужение триггер-полей — Phase 4.
+During bulk operations in Odoo (or setup with the middleware down),
+`saleor.outbox` accumulates `failed` rows and the automation fires multiple
+times for the same record (no `trigger_field_ids` set). This does not break
+sync (idempotent + dedup). Prune the outbox as needed; narrowing the trigger
+fields is future work.

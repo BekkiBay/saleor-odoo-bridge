@@ -2,19 +2,19 @@
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 
-class OrderStatus(str, Enum):
-    """Наш внутренний статус заказа. Маппится в sale.order.state."""
+class OrderStatus(StrEnum):
+    """Our internal order status. Maps to sale.order.state."""
 
     DRAFT = "draft"        # placed, not paid — sale.order draft
     CONFIRMED = "confirmed"  # paid — sale.order action_confirm → 'sale'
     CANCELLED = "cancelled"  # cancelled — sale.order _action_cancel → 'cancel'
 
 
-class SyncState(str, Enum):
-    """Состояние синхронизации записи (зеркалит saleor.binding.sync_state)."""
+class SyncState(StrEnum):
+    """Sync state of a record (mirrors saleor.binding.sync_state)."""
 
     PENDING = "pending"
     SYNCED = "synced"
@@ -22,7 +22,7 @@ class SyncState(str, Enum):
     DIVERGED = "diverged"
 
 
-class AddressKind(str, Enum):
-    BILLING = "invoice"   # совпадает с res.partner.type
+class AddressKind(StrEnum):
+    BILLING = "invoice"   # matches res.partner.type
     SHIPPING = "delivery"
     OTHER = "other"

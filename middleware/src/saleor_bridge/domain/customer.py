@@ -10,7 +10,7 @@ from saleor_bridge.domain.address import Address
 class Customer(BaseModel):
     external_id: str            # Saleor User.id (base64, stored as-is)
     # Plain str, not EmailStr: phone-login shoppers carry a synthetic identity
-    # email ("998…@phone.justix.local"); ".local" is a reserved TLD that
+    # email ("998…@phone.example.local"); ".local" is a reserved TLD that
     # email-validator rejects. Saleor already validated it; Odoo email is free-text.
     email: str
     first_name: str | None = None

@@ -1,51 +1,52 @@
 # Runbook — Odoo API key rotation (middleware)
 
-Middleware ходит в Odoo по JSON-2 REST API (`/json/2/...`) с
-`Authorization: bearer <BRIDGE_ODOO_API_KEY>`. Ключ привязан к пользователю
-`admin@marketplace.local` (uid 2), **scope = NULL** (global — нужно для JSON-2),
-TTL **3 месяца**.
+The middleware talks to Odoo over the JSON-2 REST API (`/json/2/...`) with
+`Authorization: bearer <BRIDGE_ODOO_API_KEY>`. The key is bound to the user
+`admin@marketplace.local` (uid 2, an example login), **scope = NULL** (global
+— required for JSON-2), TTL **3 months**.
 
-## Когда ротировать
+## When to rotate
 
-- За ~1 неделю до истечения (см. таблицу ниже).
-- При компрометации `.env` / утечке ключа.
-- При смене admin-пользователя.
+- About 1 week before expiry (see table below).
+- On `.env` compromise / key leak.
+- When the admin user changes.
 
-| Создан | Истекает | Действие |
+| Created | Expires | Action |
 |---|---|---|
-| 2026-05-23 | **2026-08-23** | ротировать до 2026-08-16 |
+| _(fill in)_ | _(fill in)_ | rotate ~1 week before expiry |
 
-> Обновляй эту строку при каждой ротации.
+> Update this row on every rotation.
 
-## Ротация
+## Rotation
 
 ```bash
-cd odoo-saleor-integration
-.venv/bin/python scripts/generate_api_key.py        # генерит новый, пишет в .env
-docker compose up -d middleware middleware-worker    # подхватить новый ключ (НЕ restart)
-curl http://localhost:8080/health                    # {"odoo":"ok"}
+.venv/bin/python scripts/generate_api_key.py          # generates a new key, writes it to .env
+docker compose up -d middleware middleware-worker      # pick up the new key (NOT restart)
+curl http://localhost:8080/health                      # {"odoo":"ok"}
 ```
 
-Скрипт:
-1. Удаляет старые ключи с именем `saleor-bridge-smoke` у admin-юзера (идемпотентно).
-2. Генерит новый: `env['res.users.apikeys'].with_user(admin)._generate(None, 'saleor-bridge-smoke', now+3мес)`.
-   - `_generate` привязывает ключ к `self.env.user` → используется `with_user(admin)`.
-   - scope `None` (НЕ `'rpc'`) — JSON-2 API требует global-scope ключ.
-3. Печатает `BRIDGE_ODOO_API_KEY=<key>` и переписывает строку в `.env`.
+The script:
+1. Deletes old keys named `saleor-bridge-smoke` for the admin user (idempotent).
+2. Generates a new one: `env['res.users.apikeys'].with_user(admin)._generate(None, 'saleor-bridge-smoke', now+3mo)`.
+   - `_generate` binds the key to `self.env.user`, hence `with_user(admin)`.
+   - scope `None` (NOT `'rpc'`) — the JSON-2 API requires a global-scope key.
+3. Prints `BRIDGE_ODOO_API_KEY=<key>` and rewrites that line in `.env`.
 
-Проверка в БД:
+Check it in the database:
 ```bash
-docker exec odoo-db psql -U admin -d marketplace -tA -c \
+docker compose exec db psql -U "${POSTGRES_USER:-odoo}" -d marketplace -tA -c \
   "SELECT name,user_id,scope,expiration_date FROM res_users_apikeys WHERE name='saleor-bridge-smoke';"
-# saleor-bridge-smoke|2||<exp>     (scope пустой = NULL)
+# saleor-bridge-smoke|2||<exp>     (empty scope = NULL)
 ```
 
-## Гочи
+## Gotchas
 
-- **odoo shell не интерактивен в скрипте** — `generate_api_key.py` пайпит код в
+- **`odoo shell` isn't interactive in the script** — `generate_api_key.py`
+  pipes code into
   `docker compose exec -T odoo odoo shell -d marketplace --no-http -c /tmp/odoo.conf`.
-  Конфиг именно `/tmp/odoo.conf` (entrypoint подставил туда env; в
-  `/etc/odoo/odoo.conf` остаются сырые `${...}`).
-- **После записи в `.env`** middleware/worker нужно **пересоздать** (`up -d`),
-  `restart` не перечитывает переменные окружения.
-- **Ключ виден один раз** — после генерации только хэш в БД. Потерял → генери заново.
+  The config must be `/tmp/odoo.conf` (the entrypoint substitutes env vars
+  into it; `/etc/odoo/odoo.conf` still has raw `${...}` placeholders).
+- **After writing to `.env`**, the middleware/worker must be **recreated**
+  (`up -d`) — `restart` does not reread environment variables.
+- **The key is shown only once** — after generation only its hash is stored
+  in the DB. If you lose it, generate a new one.

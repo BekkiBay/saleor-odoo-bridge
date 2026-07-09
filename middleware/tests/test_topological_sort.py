@@ -1,4 +1,4 @@
-"""Топологическая сортировка категорий: родители раньше детей."""
+"""Topological sort of categories: parents come before children."""
 
 from __future__ import annotations
 
@@ -18,9 +18,9 @@ def _pos(order: list[ProductCategory]) -> dict[str, int]:
 
 def test_parents_before_children():
     cats = [
-        _cat("3", "2"),   # внук
-        _cat("1", None),  # корень
-        _cat("2", "1"),   # ребёнок
+        _cat("3", "2"),   # grandchild
+        _cat("1", None),  # root
+        _cat("2", "1"),   # child
     ]
     order = topological_sort(cats)
     pos = _pos(order)
@@ -41,7 +41,7 @@ def test_multiple_roots_and_siblings():
 
 
 def test_parent_outside_set_is_ignored():
-    # parent "99" не входит в множество — не падаем, просто не ждём его.
+    # parent "99" is not in the set — we don't fail, we just don't wait for it.
     cats = [_cat("5", "99")]
     order = topological_sort(cats)
     assert [c.external_id for c in order] == ["5"]

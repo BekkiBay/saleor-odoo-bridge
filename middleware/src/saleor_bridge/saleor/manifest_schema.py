@@ -1,11 +1,16 @@
-"""Pydantic-схема Saleor App Manifest.
+"""Pydantic schema for the Saleor App Manifest.
 
 Reference: https://docs.saleor.io/developer/extending/apps/architecture/manifest
 """
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, Field
+
+from saleor_bridge import __version__
+from saleor_bridge.config import Settings
 
 
 class WebhookManifest(BaseModel):
@@ -18,12 +23,12 @@ class WebhookManifest(BaseModel):
 
 
 class AppManifest(BaseModel):
-    """Минимальный набор полей."""
+    """The subset of manifest fields this bridge advertises."""
 
-    id: str = "uz.justix.saleor-bridge"
-    version: str = "0.3.0"
-    name: str = "Justix Odoo Sync"
-    about: str = "Bidirectional sync between Justix Odoo back-office and Saleor storefront."
+    id: str = "saleor-odoo-bridge"
+    version: str = __version__
+    name: str = "Saleor Odoo Sync"
+    about: str = "Bidirectional sync between an Odoo back-office and a Saleor storefront."
 
     permissions: list[str] = Field(
         default_factory=lambda: [
@@ -38,21 +43,38 @@ class AppManifest(BaseModel):
     appUrl: str
     tokenTargetUrl: str
     dataPrivacyUrl: str
-    homepageUrl: str = "https://justix.uz"
-    supportUrl: str = "mailto:support@justix.uz"
+    homepageUrl: str = "https://github.com/BekkiBay/saleor-odoo-bridge"
+    supportUrl: str = "https://github.com/BekkiBay/saleor-odoo-bridge/issues"
 
     extensions: list[dict] = []
     webhooks: list[WebhookManifest] = []
 
     requiredSaleorVersion: str = "^3.20"
-    author: str = "Justix Market"
+    author: str = "saleor-odoo-bridge contributors"
 
     @classmethod
-    def build(cls, public_url: str) -> AppManifest:
-        """Manifest с substituted public URL + все 6 Phase 3.1 webhooks."""
+    def build(cls, public_url: str, settings: Settings | None = None) -> AppManifest:
+        """Manifest with the public URL substituted and all 6 webhooks declared.
+
+        App identity (id/name/about/urls/author) comes from ``settings`` when
+        given, so a deployment can advertise itself without patching the code.
+        """
         base = public_url.rstrip("/")
         wh = f"{base}/api/webhooks"
+        identity: dict[str, Any] = (
+            {
+                "id": settings.app_id,
+                "name": settings.app_name,
+                "about": settings.app_about,
+                "homepageUrl": settings.app_homepage_url,
+                "supportUrl": settings.app_support_url,
+                "author": settings.app_author,
+            }
+            if settings is not None
+            else {}
+        )
         return cls(
+            **identity,
             appUrl=base,
             tokenTargetUrl=f"{base}/api/register",
             dataPrivacyUrl=f"{base}/legal/privacy",
